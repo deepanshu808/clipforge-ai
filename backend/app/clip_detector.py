@@ -253,8 +253,6 @@ def _slice_captions(
         rel_end = round(min(end_sec - start_sec, s_end - start_sec), 2)
         if rel_end - rel_start >= 0.1 and seg.get("text"):
             captions.append({"start": rel_start, "end": rel_end, "text": str(seg["text"]).strip()})
-    if not captions and fallback_text:
-        captions.append({"start": 0.0, "end": round(max(0.5, end_sec - start_sec), 2), "text": fallback_text[:120]})
     return captions
 
 
