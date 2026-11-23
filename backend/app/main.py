@@ -345,7 +345,7 @@ def _run_cut_clips_worker(
             _set_progress(project_id, job_id, 6, f"Cutting Clip {idx}/{total}", pct)
 
             title = str(cand.get("suggested_title") or cand.get("title") or f"Clip {idx:02d}")
-            captions = cand.get("captions") or [{"start": 0.0, "end": round(end_s - start_s, 2), "text": title}]
+            captions = cand.get("captions") or []
 
             stage = "Adding Captions"
             _set_progress(project_id, job_id, 7, f"Adding Captions ({idx}/{total})", min(90, pct + 4))
@@ -361,7 +361,7 @@ def _run_cut_clips_worker(
                 start_sec=start_s,
                 end_sec=end_s,
                 aspect_ratio=use_aspect,
-                ass_path=ass_path if use_burn else None,
+                ass_path=ass_path if (use_burn and captions) else None,
             )
 
             stage = "Verifying Output"
@@ -965,7 +965,7 @@ def api_rerender_clip(project_id: str, clip_id: str, req: RerenderRequest):
         start_sec=start_s,
         end_sec=end_s,
         aspect_ratio=aspect,
-        ass_path=ass_path if burn else None,
+        ass_path=ass_path if (burn and captions) else None,
     )
 
     clip["title"] = req.title.strip() if req.title else clip["title"]
