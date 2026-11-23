@@ -1,6 +1,9 @@
+import base64
 import json
 import math
 import os
+import subprocess
+import tempfile
 import wave
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -10,16 +13,165 @@ import numpy as np
 
 from app.video_processor import detect_scene_changes_ffmpeg
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+
+def _get_openai_key() -> str:
+    return os.getenv("OPENAI_API_KEY", "").strip()
+
+
+def _get_gemini_key() -> str:
+    return os.getenv("GEMINI_API_KEY", "").strip()
+
+
+def _get_gemini_model() -> str:
+    return os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash"
+
+
+def _prepare_audio_payload(wav_path: Path) -> Tuple[bytes, str]:
+    """Compress WAV to lightweight 16kHz mono MP3 so longer videos stay within Gemini inline limits."""
+    tmp_mp3: Optional[Path] = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tf:
+            tmp_mp3 = Path(tf.name)
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(wav_path),
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-b:a",
+            "32k",
+            str(tmp_mp3),
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+        if res.returncode == 0 and tmp_mp3.exists() and tmp_mp3.stat().st_size > 0:
+            return tmp_mp3.read_bytes(), "audio/mp3"
+    except Exception as exc:
+        print(f"[ClipForge AI] MP3 compression skipped, falling back to WAV: {exc}", flush=True)
+    finally:
+        if tmp_mp3 is not None:
+            tmp_mp3.unlink(missing_ok=True)
+    return wav_path.read_bytes(), "audio/wav"
+
+
+def _parse_json_response(raw_text: str) -> Any:
+    text = raw_text.strip()
+    if text.startswith("```"):
+        text = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    return json.loads(text)
+
+
+def _transcribe_with_gemini(wav_path: Path, language_pref: str) -> Tuple[List[Dict[str, Any]], str]:
+    api_key = _get_gemini_key()
+    model = _get_gemini_model()
+    if not api_key:
+        return [], ""
+
+    audio_bytes, mime_type = _prepare_audio_payload(wav_path)
+    if len(audio_bytes) > 15 * 1024 * 1024:
+        print(
+            f"[ClipForge AI] Audio payload too large for Gemini inline transcription ({len(audio_bytes)} bytes).",
+            flush=True,
+        )
+        return [], ""
+
+    lang_lower = (language_pref or "English").strip().lower()
+    if lang_lower in ("hindi", "hinglish"):
+        lang_instruction = (
+            "Write spoken Hindi/Urdu dialogue in clean, natural Romanized Hinglish (Latin alphabet, e.g., "
+            "'Sharma uncle ne khud ko saanp se katwa liya') so subtitles render cleanly on all video players."
+        )
+    else:
+        lang_instruction = (
+            f"Preferred caption language: {language_pref}. Transcribe spoken dialogue accurately; "
+            "if the audio is in Hindi/Urdu, write it in natural Romanized Hinglish or clean English matching the speech."
+        )
+
+    prompt = (
+        "Listen carefully to this audio and transcribe ALL spoken dialogue with accurate timestamps in seconds.\n"
+        f"{lang_instruction}\n"
+        "Break the transcript into short, punchy subtitle segments (2 to 4 seconds each, 4 to 9 words per segment) "
+        "so they look great as burned-in Reels/Shorts captions.\n"
+        "Return ONLY a JSON array with this exact schema:\n"
+        '[{"start": 0.0, "end": 2.4, "text": "First spoken line"}, {"start": 2.4, "end": 5.1, "text": "Next spoken line"}]\n'
+        "If there is no speech at all, return []."
+    )
+
+    b64_audio = base64.b64encode(audio_bytes).decode("ascii")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+
+    try:
+        resp = httpx.post(
+            url,
+            json={
+                "contents": [
+                    {
+                        "parts": [
+                            {"text": prompt},
+                            {"inline_data": {"mime_type": mime_type, "data": b64_audio}},
+                        ]
+                    }
+                ],
+                "generationConfig": {
+                    "responseMimeType": "application/json",
+                    "temperature": 0.1,
+                },
+            },
+            timeout=180.0,
+        )
+        if resp.status_code != 200:
+            print(
+                f"[ClipForge AI] Gemini transcription failed (HTTP {resp.status_code}): {resp.text[:400]}",
+                flush=True,
+            )
+            return [], ""
+
+        body = resp.json()
+        raw_text = body["candidates"][0]["content"]["parts"][0]["text"]
+        parsed = _parse_json_response(raw_text)
+        if isinstance(parsed, dict):
+            parsed = parsed.get("segments") or parsed.get("transcript") or []
+
+        segs: List[Dict[str, Any]] = []
+        if isinstance(parsed, list):
+            for s in parsed:
+                if not isinstance(s, dict):
+                    continue
+                txt = str(s.get("text", "")).strip()
+                try:
+                    st = round(max(0.0, float(s.get("start", 0.0))), 2)
+                    en = round(float(s.get("end", 0.0)), 2)
+                except (TypeError, ValueError):
+                    continue
+                if txt and en > st:
+                    segs.append({"start": st, "end": en, "text": txt})
+
+        segs.sort(key=lambda item: item["start"])
+        if segs:
+            print(f"[ClipForge AI] Gemini transcribed {len(segs)} subtitle segments.", flush=True)
+            return segs, f"gemini-{model}"
+    except Exception as exc:
+        print(f"[ClipForge AI] Gemini transcription exception: {exc}", flush=True)
+
+    return [], ""
 
 
 def transcribe_wav(wav_path: Optional[Path], language_pref: str = "English") -> Tuple[List[Dict[str, Any]], str]:
-    """Transcribe extracted WAV using OpenAI Whisper API when configured; otherwise return empty list."""
+    """Transcribe extracted WAV using Gemini API or OpenAI Whisper when configured."""
     if wav_path is None or not wav_path.exists():
         return [], "no-audio-track"
 
-    if OPENAI_API_KEY and wav_path.stat().st_size <= 24 * 1024 * 1024:
+    # 1. Try Gemini native audio transcription first when GEMINI_API_KEY is set
+    if _get_gemini_key():
+        segs, method = _transcribe_with_gemini(wav_path, language_pref)
+        if segs:
+            return segs, method
+
+    # 2. Fallback to OpenAI Whisper if OPENAI_API_KEY is configured
+    openai_key = _get_openai_key()
+    if openai_key and wav_path.stat().st_size <= 24 * 1024 * 1024:
         lang = "en" if language_pref.lower() == "english" else ("hi" if language_pref.lower() == "hindi" else None)
         try:
             with open(wav_path, "rb") as f:
@@ -32,7 +184,7 @@ def transcribe_wav(wav_path: Optional[Path], language_pref: str = "English") -> 
                     data["language"] = lang
                 resp = httpx.post(
                     "https://api.openai.com/v1/audio/transcriptions",
-                    headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+                    headers={"Authorization": f"Bearer {openai_key}"},
                     data=data,
                     files={"file": ("audio.wav", f, "audio/wav")},
                     timeout=180.0,
@@ -52,8 +204,13 @@ def transcribe_wav(wav_path: Optional[Path], language_pref: str = "English") -> 
                         )
                 if segs:
                     return segs, "openai-whisper-1"
-        except Exception:
-            pass
+            else:
+                print(
+                    f"[ClipForge AI] Whisper transcription failed (HTTP {resp.status_code}): {resp.text[:300]}",
+                    flush=True,
+                )
+        except Exception as exc:
+            print(f"[ClipForge AI] Whisper transcription exception: {exc}", flush=True)
 
     return [], "audio-energy-analysis"
 
@@ -109,7 +266,9 @@ def _llm_select_highlights(
     mode: str,
     caption_language: str,
 ) -> Optional[List[Dict[str, Any]]]:
-    if not transcript_segments or not (GEMINI_API_KEY or OPENAI_API_KEY):
+    gemini_key = _get_gemini_key()
+    openai_key = _get_openai_key()
+    if not transcript_segments or not (gemini_key or openai_key):
         return None
 
     lines = "\n".join(
@@ -119,34 +278,48 @@ def _llm_select_highlights(
         f"You are an expert short-form video editor. Analyze this real transcript of a {total_duration:.1f}s video.\n"
         f"Mode: {mode}. Target clip duration: ~{target_duration}s. Language: {caption_language}.\n"
         f"Pick up to {max_clips} non-overlapping viral moments strictly within [0, {total_duration:.2f}].\n"
-        "Align to full sentence boundaries. Return ONLY a raw JSON array:\n"
+        "Align to full sentence boundaries. Write catchy, short viral hook titles.\n"
+        "Return ONLY a raw JSON array:\n"
         '[{"start_sec": 10.0, "end_sec": 40.0, "suggested_title": "Hook title", '
         '"highlight_description": "Why it engages", "engagement_score": 88}]\n\n'
         f"TRANSCRIPT:\n{lines}"
     )
 
-    if GEMINI_API_KEY:
+    if gemini_key:
         try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+            model = _get_gemini_model()
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gemini_key}"
             resp = httpx.post(
                 url,
-                json={"contents": [{"parts": [{"text": prompt}]}]},
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {
+                        "responseMimeType": "application/json",
+                        "temperature": 0.2,
+                    },
+                },
                 timeout=60.0,
             )
             if resp.status_code == 200:
-                text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-                text = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-                parsed = json.loads(text)
+                text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+                parsed = _parse_json_response(text)
+                if isinstance(parsed, dict):
+                    parsed = parsed.get("clips") or parsed.get("highlights") or []
                 if isinstance(parsed, list) and parsed:
                     return parsed
-        except Exception:
-            pass
+            else:
+                print(
+                    f"[ClipForge AI] Gemini highlight selection failed (HTTP {resp.status_code}): {resp.text[:300]}",
+                    flush=True,
+                )
+        except Exception as exc:
+            print(f"[ClipForge AI] Gemini highlight selection exception: {exc}", flush=True)
 
-    if OPENAI_API_KEY:
+    if openai_key:
         try:
             resp = httpx.post(
                 "https://api.openai.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+                headers={"Authorization": f"Bearer {openai_key}"},
                 json={
                     "model": "gpt-4o-mini",
                     "messages": [{"role": "user", "content": prompt}],
@@ -155,13 +328,12 @@ def _llm_select_highlights(
                 timeout=60.0,
             )
             if resp.status_code == 200:
-                text = resp.json()["choices"][0]["message"]["content"].strip()
-                text = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-                parsed = json.loads(text)
+                text = resp.json()["choices"][0]["message"]["content"]
+                parsed = _parse_json_response(text)
                 if isinstance(parsed, list) and parsed:
                     return parsed
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[ClipForge AI] OpenAI highlight selection exception: {exc}", flush=True)
 
     return None
 
