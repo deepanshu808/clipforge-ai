@@ -1,13 +1,19 @@
 import asyncio
 import json
 import os
+import shutil
+import threading
+import time
 import uuid
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import httpx
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -51,8 +57,16 @@ from app.video_processor import (
     write_srt,
 )
 
-MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "1024"))
+# ---------------------------------------------------------------------------
+# Public Launch Safety Configuration (override anytime in Railway Variables)
+# ---------------------------------------------------------------------------
+MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "150"))
 MAX_WORKERS = max(1, int(os.getenv("MAX_WORKERS", "2")))
+MAX_ACTIVE_JOBS = max(MAX_WORKERS, int(os.getenv("MAX_ACTIVE_JOBS", "6")))
+RATE_LIMIT_UPLOADS = max(1, int(os.getenv("RATE_LIMIT_UPLOADS", "5")))
+RATE_LIMIT_WINDOW_MIN = max(1, int(os.getenv("RATE_LIMIT_WINDOW_MIN", "15")))
+AUTO_CLEANUP_HOURS = max(1, int(os.getenv("AUTO_CLEANUP_HOURS", "3")))
+
 CORS_ORIGINS_RAW = os.getenv("CORS_ORIGINS", "*")
 CORS_ORIGINS = [o.strip() for o in CORS_ORIGINS_RAW.split(",") if o.strip()] or ["*"]
 
@@ -63,9 +77,208 @@ init_db()
 
 EXECUTOR = ThreadPoolExecutor(max_workers=MAX_WORKERS, thread_name_prefix="clipforge-worker")
 
+# ---------------------------------------------------------------------------
+# In-Memory Rate Limiter & Active Queue Protection
+# ---------------------------------------------------------------------------
+_RATE_LOCK = threading.Lock()
+_IP_UPLOAD_HISTORY: Dict[str, List[float]] = defaultdict(list)
+
+_JOB_LOCK = threading.Lock()
+_ACTIVE_JOBS = 0
+
+
+def _get_client_ip(request: Request) -> str:
+    xff = request.headers.get("x-forwarded-for", "").strip()
+    if xff:
+        return xff.split(",")[0].strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
+
+def _enforce_rate_limit(request: Request) -> None:
+    ip = _get_client_ip(request)
+    now = time.time()
+    window_sec = RATE_LIMIT_WINDOW_MIN * 60
+    with _RATE_LOCK:
+        recent = [ts for ts in _IP_UPLOAD_HISTORY[ip] if now - ts < window_sec]
+        if len(recent) >= RATE_LIMIT_UPLOADS:
+            retry_after = max(1, int(window_sec - (now - recent[0])))
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"Too many uploads from your connection. "
+                    f"Limit is {RATE_LIMIT_UPLOADS} uploads per {RATE_LIMIT_WINDOW_MIN} minutes. "
+                    f"Please wait ~{max(1, retry_after // 60)} minute(s) and try again."
+                ),
+            )
+        recent.append(now)
+        _IP_UPLOAD_HISTORY[ip] = recent
+
+
+def _check_queue_capacity() -> None:
+    with _JOB_LOCK:
+        if _ACTIVE_JOBS >= MAX_ACTIVE_JOBS:
+            raise HTTPException(
+                status_code=503,
+                detail="Server is currently busy processing other videos. Please try again in 1–2 minutes.",
+            )
+
+
+def _submit_protected_job(fn: Callable[..., Any], *args: Any) -> None:
+    global _ACTIVE_JOBS
+    with _JOB_LOCK:
+        if _ACTIVE_JOBS >= MAX_ACTIVE_JOBS:
+            raise HTTPException(
+                status_code=503,
+                detail="Server is currently busy processing other videos. Please try again in 1–2 minutes.",
+            )
+        _ACTIVE_JOBS += 1
+
+    def _wrapped() -> None:
+        global _ACTIVE_JOBS
+        try:
+            fn(*args)
+        finally:
+            with _JOB_LOCK:
+                _ACTIVE_JOBS = max(0, _ACTIVE_JOBS - 1)
+
+    try:
+        EXECUTOR.submit(_wrapped)
+    except Exception:
+        with _JOB_LOCK:
+            _ACTIVE_JOBS = max(0, _ACTIVE_JOBS - 1)
+        raise
+
+
+# ---------------------------------------------------------------------------
+# Automatic Disk Cleanup (Prevents Railway Disk Full Errors)
+# ---------------------------------------------------------------------------
+def _project_age_seconds(project: Dict[str, Any], now: float) -> Optional[float]:
+    source_path_str = project.get("source_path")
+    if source_path_str:
+        src = Path(source_path_str)
+        if src.exists():
+            try:
+                return max(0.0, now - src.stat().st_mtime)
+            except OSError:
+                pass
+
+    created_raw = project.get("created_at")
+    if created_raw is None:
+        return None
+    if isinstance(created_raw, (int, float)):
+        return max(0.0, now - float(created_raw))
+
+    text = str(created_raw).strip()
+    if not text:
+        return None
+    for candidate in (text.replace("Z", "+00:00"), text.replace(" ", "T")):
+        try:
+            dt = datetime.fromisoformat(candidate)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return max(0.0, now - dt.timestamp())
+        except ValueError:
+            continue
+    return None
+
+
+def _cleanup_old_projects_once() -> int:
+    now = time.time()
+    cutoff_sec = AUTO_CLEANUP_HOURS * 3600
+    cleaned = 0
+    try:
+        projects = list_projects()
+    except Exception as exc:
+        print(f"[ClipForge AI] Auto-cleanup skipped (DB read error): {exc}", flush=True)
+        return 0
+
+    for proj in projects:
+        status = str(proj.get("status") or "").lower()
+        if status in ("queued", "processing", "expired"):
+            continue
+
+        age = _project_age_seconds(proj, now)
+        if age is None or age < cutoff_sec:
+            continue
+
+        pid = proj["id"]
+        try:
+            cleanup_project_temp(pid)
+
+            src_str = proj.get("source_path")
+            if src_str:
+                src_path = Path(src_str)
+                if src_path.parent.exists() and pid in src_path.parent.name:
+                    shutil.rmtree(src_path.parent, ignore_errors=True)
+                elif src_path.exists():
+                    src_path.unlink(missing_ok=True)
+
+            clips = get_clips_for_project(pid)
+            removed_proc_dir = False
+            for clip in clips:
+                for key in ("video_path", "thumbnail_path", "srt_path", "ass_path"):
+                    fpath_str = clip.get(key)
+                    if not fpath_str:
+                        continue
+                    fpath = Path(fpath_str)
+                    if not removed_proc_dir and pid in fpath.parent.name and fpath.parent.exists():
+                        shutil.rmtree(fpath.parent, ignore_errors=True)
+                        removed_proc_dir = True
+                    elif fpath.exists():
+                        fpath.unlink(missing_ok=True)
+
+            proc_dir = get_project_processed_dir(pid)
+            if pid in proc_dir.name and proc_dir.exists():
+                shutil.rmtree(proc_dir, ignore_errors=True)
+
+            upload_dir = get_project_upload_dir(pid)
+            if pid in upload_dir.name and upload_dir.exists():
+                shutil.rmtree(upload_dir, ignore_errors=True)
+
+            update_project(
+                pid,
+                status="expired",
+                error_message=f"Auto-deleted after {AUTO_CLEANUP_HOURS}h to keep server storage fast.",
+            )
+            cleaned += 1
+        except Exception as exc:
+            print(f"[ClipForge AI] Cleanup error for {pid}: {exc}", flush=True)
+
+    if cleaned:
+        print(f"[ClipForge AI] Auto-cleanup cleared disk files for {cleaned} expired project(s).", flush=True)
+    return cleaned
+
+
+async def _periodic_cleanup_loop() -> None:
+    while True:
+        try:
+            await asyncio.to_thread(_cleanup_old_projects_once)
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            print(f"[ClipForge AI] Periodic cleanup loop error: {exc}", flush=True)
+        await asyncio.sleep(900)  # Check every 15 minutes
+
+
+@asynccontextmanager
+async def lifespan(app_instance: FastAPI):
+    cleanup_task = asyncio.create_task(_periodic_cleanup_loop())
+    try:
+        yield
+    finally:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
+
+
 app = FastAPI(
     title="ClipForge AI — Standalone FastAPI + FFmpeg Backend",
-    version="2.1.0",
+    version="2.2.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -114,7 +327,6 @@ def _serialize_clip(clip: Dict[str, Any]) -> Dict[str, Any]:
         "captions": captions,
         "file_size_bytes": mp4_path.stat().st_size if exists else 0,
         "file_verified": verified,
-        # Direct secure download URLs + /api/* aliases for ClipForgeAI.jsx
         "video_url": f"/downloads/{pid}/{vid_file}" if verified else None,
         "download_url": f"/downloads/{pid}/{vid_file}?download=1" if verified else None,
         "thumbnail_url": f"/downloads/{pid}/thumbnails/{thumb_file}" if (thumb_file and clip.get("thumbnail_path") and Path(clip["thumbnail_path"]).exists()) else None,
@@ -424,7 +636,6 @@ def _run_full_pipeline_worker(project_id: str, job_id: str) -> None:
         candidates = _run_analyze_worker(project_id, job_id=None)
         _run_cut_clips_worker(project_id, job_id=job_id, custom_clips=candidates)
     except Exception:
-        # Failure status is already recorded on project and job by sub-workers
         pass
 
 
@@ -478,6 +689,8 @@ async def _save_upload_file(file: UploadFile, project_id: str) -> Tuple[str, Pat
 def health_check():
     ffmpeg = check_ffmpeg_health()
     storage_ok = check_storage_writable()
+    with _JOB_LOCK:
+        active_jobs = _ACTIVE_JOBS
     return {
         "status": "ok" if (ffmpeg["available"] and storage_ok) else "degraded",
         "service": "ClipForge AI Backend",
@@ -488,6 +701,11 @@ def health_check():
         "storage_writable": storage_ok,
         "data_dir": str(ensure_storage_dirs()["data_dir"]),
         "max_upload_mb": MAX_UPLOAD_MB,
+        "max_workers": MAX_WORKERS,
+        "active_jobs": active_jobs,
+        "max_active_jobs": MAX_ACTIVE_JOBS,
+        "rate_limit": f"{RATE_LIMIT_UPLOADS} uploads / {RATE_LIMIT_WINDOW_MIN} min",
+        "auto_cleanup_hours": AUTO_CLEANUP_HOURS,
         "ai_configured": bool(os.getenv("GEMINI_API_KEY") or os.getenv("OPENAI_API_KEY")),
         "caption_styles": list(CAPTION_STYLE_PRESETS.keys()),
         "aspect_ratios": list(ASPECT_RESOLUTIONS.keys()),
@@ -499,6 +717,7 @@ def health_check():
 # ---------------------------------------------------------------------------
 @app.post("/upload")
 async def upload_video(
+    request: Request,
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
     mode: str = Form("Best Moments"),
@@ -510,6 +729,7 @@ async def upload_video(
     burn_captions: bool = Form(True),
     copyright_confirmed: bool = Form(True),
 ):
+    _enforce_rate_limit(request)
     ffmpeg = check_ffmpeg_health()
     if not ffmpeg["available"]:
         raise HTTPException(status_code=503, detail=ffmpeg["error"])
@@ -567,6 +787,7 @@ class AnalyzeRequest(BaseModel):
 
 @app.post("/analyze")
 def analyze_video(req: AnalyzeRequest):
+    _check_queue_capacity()
     try:
         require_ffmpeg()
     except FFmpegNotAvailableError as exc:
@@ -589,7 +810,7 @@ def analyze_video(req: AnalyzeRequest):
         update_project(req.project_id, **updates)
 
     job = create_job(req.project_id, job_type="analyze", stage_name="Queued for Analysis")
-    EXECUTOR.submit(_run_analyze_worker, req.project_id, job["id"])
+    _submit_protected_job(_run_analyze_worker, req.project_id, job["id"])
     return _serialize_job(job)
 
 
@@ -616,6 +837,7 @@ class CutClipsRequest(BaseModel):
 
 @app.post("/cut-clips")
 def cut_clips(req: CutClipsRequest):
+    _check_queue_capacity()
     try:
         require_ffmpeg()
     except FFmpegNotAvailableError as exc:
@@ -627,7 +849,7 @@ def cut_clips(req: CutClipsRequest):
 
     custom = [c.model_dump() for c in req.clips] if req.clips else None
     job = create_job(req.project_id, job_type="cut-clips", stage_name="Queued for FFmpeg Cutting")
-    EXECUTOR.submit(
+    _submit_protected_job(
         _run_cut_clips_worker,
         req.project_id,
         job["id"],
@@ -698,6 +920,7 @@ def download_project_video(project_id: str, filename: str, download: int = 0):
 # ---------------------------------------------------------------------------
 @app.post("/api/projects/upload")
 async def api_upload_and_process(
+    request: Request,
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
     mode: str = Form("Best Moments"),
@@ -709,6 +932,8 @@ async def api_upload_and_process(
     burn_captions: bool = Form(True),
     copyright_confirmed: bool = Form(True),
 ):
+    _enforce_rate_limit(request)
+    _check_queue_capacity()
     ffmpeg = check_ffmpeg_health()
     if not ffmpeg["available"]:
         raise HTTPException(status_code=503, detail=ffmpeg["error"])
@@ -741,7 +966,7 @@ async def api_upload_and_process(
         }
     )
     job = create_job(project_id, job_type="full-pipeline", stage_name="Uploading Video")
-    EXECUTOR.submit(_run_full_pipeline_worker, project_id, job["id"])
+    _submit_protected_job(_run_full_pipeline_worker, project_id, job["id"])
     resp = _serialize_project(project)
     resp["job_id"] = job["id"]
     return resp
@@ -761,7 +986,9 @@ class ExternalImportRequest(BaseModel):
 
 
 @app.post("/api/projects/import-url")
-async def api_import_authorized_url(payload: ExternalImportRequest):
+async def api_import_authorized_url(request: Request, payload: ExternalImportRequest):
+    _enforce_rate_limit(request)
+    _check_queue_capacity()
     ffmpeg = check_ffmpeg_health()
     if not ffmpeg["available"]:
         raise HTTPException(status_code=503, detail=ffmpeg["error"])
@@ -821,7 +1048,7 @@ async def api_import_authorized_url(payload: ExternalImportRequest):
         }
     )
     job = create_job(project_id, job_type="full-pipeline", stage_name="Uploading Video")
-    EXECUTOR.submit(_run_full_pipeline_worker, project_id, job["id"])
+    _submit_protected_job(_run_full_pipeline_worker, project_id, job["id"])
     res = _serialize_project(project)
     res["job_id"] = job["id"]
     return res
@@ -850,7 +1077,7 @@ async def api_project_events(project_id: str):
                 break
             payload = _serialize_project(project, include_clips=(project["status"] == "completed"))
             yield f"data: {json.dumps(payload)}\n\n"
-            if payload["status"] in ("completed", "failed"):
+            if payload["status"] in ("completed", "failed", "expired"):
                 break
             await asyncio.sleep(0.8)
 
@@ -858,7 +1085,9 @@ async def api_project_events(project_id: str):
 
 
 @app.post("/api/projects/{project_id}/retry")
-def api_retry_project(project_id: str):
+def api_retry_project(request: Request, project_id: str):
+    _enforce_rate_limit(request)
+    _check_queue_capacity()
     try:
         require_ffmpeg()
     except FFmpegNotAvailableError as exc:
@@ -879,7 +1108,7 @@ def api_retry_project(project_id: str):
         error_message=None,
     )
     job = create_job(project_id, job_type="full-pipeline", stage_name="Retrying")
-    EXECUTOR.submit(_run_full_pipeline_worker, project_id, job["id"])
+    _submit_protected_job(_run_full_pipeline_worker, project_id, job["id"])
     return _serialize_project(get_project(project_id))  # type: ignore
 
 
