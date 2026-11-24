@@ -48,10 +48,10 @@ import {
 } from "lucide-react";
 
 const DEFAULT_BACKEND_URL = "https://clipforge-ai-production-b45ab787.up.railway.app";
-const SUPABASE_URL = (import.meta?.env?.VITE_SUPABASE_URL || "").trim();
-const SUPABASE_ANON_KEY = (import.meta?.env?.VITE_SUPABASE_ANON_KEY || "").trim();
-const ADMIN_EMAIL = (import.meta?.env?.VITE_ADMIN_EMAIL || "").trim().toLowerCase();
-const SUPPORT_EMAIL = (import.meta?.env?.VITE_SUPPORT_EMAIL || ADMIN_EMAIL || "support@clipforge.ai").trim();
+const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || "").trim();
+const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY || "").trim();
+const ADMIN_EMAIL = (import.meta.env.VITE_ADMIN_EMAIL || "").trim().toLowerCase();
+const SUPPORT_EMAIL = (import.meta.env.VITE_SUPPORT_EMAIL || ADMIN_EMAIL || "support@clipforge.ai").trim();
 
 const supabase =
   SUPABASE_URL && SUPABASE_ANON_KEY ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
@@ -173,7 +173,7 @@ function getDefaultBaseUrl() {
     const saved = localStorage.getItem("clipforge_api_base_url");
     if (saved) return normalizeBaseUrl(saved);
   } catch {}
-  const envUrl = import.meta?.env?.VITE_API_BASE_URL;
+  const envUrl = import.meta.env.VITE_API_BASE_URL;
   if (envUrl) return normalizeBaseUrl(envUrl);
   return DEFAULT_BACKEND_URL;
 }
