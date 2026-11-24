@@ -1,4 +1,4 @@
-const SUPABASE_ORIGIN = "https://tbdjvlvwkmyafvwktmbk.supabase.co";
+const SUPABASE_ORIGIN = "https://tbdjvlvvkmyafvwktmbk.supabase.co";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
