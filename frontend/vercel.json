@@ -1,8 +1,8 @@
 {
   "rewrites": [
     {
-      "source": "/supabase/:path*",
-      "destination": "/api/supabase/:path*"
+      "source": "/supabase/(.*)",
+      "destination": "/api/supabase-proxy?__path=$1"
     }
   ]
 }
