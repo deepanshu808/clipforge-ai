@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.clip_detector import detect_highlights, transcribe_wav
+from app.payments import router as payments_router
 from app.storage import (
     build_project_zip,
     check_storage_writable,
@@ -288,6 +289,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(payments_router)
 
 
 # ---------------------------------------------------------------------------
