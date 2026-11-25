@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import os
 import shutil
@@ -68,15 +69,157 @@ RATE_LIMIT_UPLOADS = max(1, int(os.getenv("RATE_LIMIT_UPLOADS", "5")))
 RATE_LIMIT_WINDOW_MIN = max(1, int(os.getenv("RATE_LIMIT_WINDOW_MIN", "15")))
 AUTO_CLEANUP_HOURS = max(1, int(os.getenv("AUTO_CLEANUP_HOURS", "3")))
 
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
+SUPABASE_API_KEY = (
+    os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    or os.getenv("SUPABASE_KEY")
+    or os.getenv("SUPABASE_ANON_KEY")
+    or ""
+).strip()
+
 CORS_ORIGINS_RAW = os.getenv("CORS_ORIGINS", "*")
 CORS_ORIGINS = [o.strip() for o in CORS_ORIGINS_RAW.split(",") if o.strip()] or ["*"]
 
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".webm", ".mkv", ".avi"}
 
-ensure_storage_dirs()
+STORAGE_DIRS = ensure_storage_dirs()
 init_db()
 
 EXECUTOR = ThreadPoolExecutor(max_workers=MAX_WORKERS, thread_name_prefix="clipforge-worker")
+
+# ---------------------------------------------------------------------------
+# Per-User Project Ownership Store (Stored inside /data alongside SQLite DB)
+# ---------------------------------------------------------------------------
+_OWNERS_FILE = Path(STORAGE_DIRS["data_dir"]) / "project_owners.json"
+_OWNERS_LOCK = threading.Lock()
+
+
+def _read_owners_unlocked() -> Dict[str, str]:
+    if not _OWNERS_FILE.exists():
+        return {}
+    try:
+        raw = json.loads(_OWNERS_FILE.read_text(encoding="utf-8"))
+        if isinstance(raw, dict):
+            return {str(k): str(v) for k, v in raw.items() if k and v}
+    except Exception:
+        pass
+    return {}
+
+
+def _write_owners_unlocked(mapping: Dict[str, str]) -> None:
+    tmp_path = _OWNERS_FILE.with_suffix(".json.tmp")
+    try:
+        tmp_path.write_text(json.dumps(mapping), encoding="utf-8")
+        os.replace(tmp_path, _OWNERS_FILE)
+    except Exception as exc:
+        print(f"[ClipForge AI] Could not write project_owners.json: {exc}", flush=True)
+
+
+def _set_project_owner(project_id: str, user_id: str) -> None:
+    if not project_id or not user_id:
+        return
+    with _OWNERS_LOCK:
+        mapping = _read_owners_unlocked()
+        mapping[str(project_id)] = str(user_id)
+        _write_owners_unlocked(mapping)
+
+
+def _get_project_owner(project_id: str) -> Optional[str]:
+    with _OWNERS_LOCK:
+        return _read_owners_unlocked().get(str(project_id))
+
+
+def _remove_project_owner(project_id: str) -> None:
+    with _OWNERS_LOCK:
+        mapping = _read_owners_unlocked()
+        if str(project_id) in mapping:
+            mapping.pop(str(project_id), None)
+            _write_owners_unlocked(mapping)
+
+
+# ---------------------------------------------------------------------------
+# Supabase JWT Verification (with 5-minute in-memory cache)
+# ---------------------------------------------------------------------------
+_AUTH_CACHE_LOCK = threading.Lock()
+_AUTH_CACHE: Dict[str, Tuple[str, float]] = {}  # sha256(token) -> (user_id, expires_at)
+_AUTH_CACHE_TTL_SEC = 300.0
+
+
+def _extract_bearer_token(request: Request) -> Optional[str]:
+    auth_header = (request.headers.get("authorization") or "").strip()
+    if not auth_header.lower().startswith("bearer "):
+        return None
+    token = auth_header[7:].strip()
+    return token or None
+
+
+def _verify_supabase_token_sync(token: str) -> Optional[str]:
+    if not token or not SUPABASE_URL or not SUPABASE_API_KEY:
+        return None
+
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    now = time.time()
+    with _AUTH_CACHE_LOCK:
+        cached = _AUTH_CACHE.get(token_hash)
+        if cached and cached[1] > now:
+            return cached[0]
+
+    try:
+        with httpx.Client(timeout=8.0) as client:
+            resp = client.get(
+                f"{SUPABASE_URL}/auth/v1/user",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "apikey": SUPABASE_API_KEY,
+                },
+            )
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        user_id = str(data.get("id") or "").strip()
+        if not user_id:
+            return None
+        with _AUTH_CACHE_LOCK:
+            if len(_AUTH_CACHE) > 2000:
+                _AUTH_CACHE.clear()
+            _AUTH_CACHE[token_hash] = (user_id, now + _AUTH_CACHE_TTL_SEC)
+        return user_id
+    except Exception as exc:
+        print(f"[ClipForge AI] Supabase token verify error: {exc}", flush=True)
+        return None
+
+
+def _get_authenticated_user_id(request: Request, required: bool = False) -> Optional[str]:
+    token = _extract_bearer_token(request)
+    if not token:
+        if required and SUPABASE_URL and SUPABASE_API_KEY:
+            raise HTTPException(
+                status_code=401,
+                detail="Authentication required. Please sign in to ClipForge AI and try again.",
+            )
+        return None
+
+    user_id = _verify_supabase_token_sync(token)
+    if not user_id and required and SUPABASE_URL and SUPABASE_API_KEY:
+        raise HTTPException(
+            status_code=401,
+            detail="Your session has expired. Please sign in again.",
+        )
+    return user_id
+
+
+def _assert_project_access_if_authenticated(request: Request, project_id: str) -> None:
+    """If a Bearer token is supplied, ensure the caller owns the target project."""
+    token = _extract_bearer_token(request)
+    if not token:
+        return
+    user_id = _verify_supabase_token_sync(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid or expired session token.")
+    owner_id = _get_project_owner(project_id)
+    if owner_id and owner_id != user_id:
+        raise HTTPException(status_code=403, detail="You do not have permission to access this project.")
+
 
 # ---------------------------------------------------------------------------
 # In-Memory Rate Limiter & Active Queue Protection
@@ -243,6 +386,7 @@ def _cleanup_old_projects_once() -> int:
                 status="expired",
                 error_message=f"Auto-deleted after {AUTO_CLEANUP_HOURS}h to keep server storage fast.",
             )
+            _remove_project_owner(pid)
             cleaned += 1
         except Exception as exc:
             print(f"[ClipForge AI] Cleanup error for {pid}: {exc}", flush=True)
@@ -278,7 +422,7 @@ async def lifespan(app_instance: FastAPI):
 
 app = FastAPI(
     title="ClipForge AI — Standalone FastAPI + FFmpeg Backend",
-    version="2.2.0",
+    version="2.3.0",
     lifespan=lifespan,
 )
 
@@ -702,13 +846,14 @@ def health_check():
         "ffmpeg_version": ffmpeg["version"],
         "ffmpeg_error": ffmpeg["error"],
         "storage_writable": storage_ok,
-        "data_dir": str(ensure_storage_dirs()["data_dir"]),
+        "data_dir": str(STORAGE_DIRS["data_dir"]),
         "max_upload_mb": MAX_UPLOAD_MB,
         "max_workers": MAX_WORKERS,
         "active_jobs": active_jobs,
         "max_active_jobs": MAX_ACTIVE_JOBS,
         "rate_limit": f"{RATE_LIMIT_UPLOADS} uploads / {RATE_LIMIT_WINDOW_MIN} min",
         "auto_cleanup_hours": AUTO_CLEANUP_HOURS,
+        "user_isolation_enabled": bool(SUPABASE_URL and SUPABASE_API_KEY),
         "ai_configured": bool(os.getenv("GEMINI_API_KEY") or os.getenv("OPENAI_API_KEY")),
         "caption_styles": list(CAPTION_STYLE_PRESETS.keys()),
         "aspect_ratios": list(ASPECT_RESOLUTIONS.keys()),
@@ -732,6 +877,7 @@ async def upload_video(
     burn_captions: bool = Form(True),
     copyright_confirmed: bool = Form(True),
 ):
+    user_id = await asyncio.to_thread(_get_authenticated_user_id, request, True)
     _enforce_rate_limit(request)
     ffmpeg = check_ffmpeg_health()
     if not ffmpeg["available"]:
@@ -774,6 +920,8 @@ async def upload_video(
             "progress_percent": 15,
         }
     )
+    if user_id:
+        _set_project_owner(project_id, user_id)
     return {"project_id": project["id"], "project": _serialize_project(project)}
 
 
@@ -789,7 +937,8 @@ class AnalyzeRequest(BaseModel):
 
 
 @app.post("/analyze")
-def analyze_video(req: AnalyzeRequest):
+def analyze_video(request: Request, req: AnalyzeRequest):
+    _assert_project_access_if_authenticated(request, req.project_id)
     _check_queue_capacity()
     try:
         require_ffmpeg()
@@ -839,7 +988,8 @@ class CutClipsRequest(BaseModel):
 
 
 @app.post("/cut-clips")
-def cut_clips(req: CutClipsRequest):
+def cut_clips(request: Request, req: CutClipsRequest):
+    _assert_project_access_if_authenticated(request, req.project_id)
     _check_queue_capacity()
     try:
         require_ffmpeg()
@@ -919,7 +1069,7 @@ def download_project_video(project_id: str, filename: str, download: int = 0):
 
 
 # ---------------------------------------------------------------------------
-# 7. Full Compatibility Routes for Existing ClipForgeAI.jsx Frontend (/api/*)
+# 7. Full Compatibility Routes for ClipForge AI Frontend (/api/*)
 # ---------------------------------------------------------------------------
 @app.post("/api/projects/upload")
 async def api_upload_and_process(
@@ -935,6 +1085,7 @@ async def api_upload_and_process(
     burn_captions: bool = Form(True),
     copyright_confirmed: bool = Form(True),
 ):
+    user_id = await asyncio.to_thread(_get_authenticated_user_id, request, True)
     _enforce_rate_limit(request)
     _check_queue_capacity()
     ffmpeg = check_ffmpeg_health()
@@ -968,6 +1119,9 @@ async def api_upload_and_process(
             "progress_percent": 10,
         }
     )
+    if user_id:
+        _set_project_owner(project_id, user_id)
+
     job = create_job(project_id, job_type="full-pipeline", stage_name="Uploading Video")
     _submit_protected_job(_run_full_pipeline_worker, project_id, job["id"])
     resp = _serialize_project(project)
@@ -990,6 +1144,7 @@ class ExternalImportRequest(BaseModel):
 
 @app.post("/api/projects/import-url")
 async def api_import_authorized_url(request: Request, payload: ExternalImportRequest):
+    user_id = await asyncio.to_thread(_get_authenticated_user_id, request, True)
     _enforce_rate_limit(request)
     _check_queue_capacity()
     ffmpeg = check_ffmpeg_health()
@@ -1050,6 +1205,9 @@ async def api_import_authorized_url(request: Request, payload: ExternalImportReq
             "progress_percent": 10,
         }
     )
+    if user_id:
+        _set_project_owner(project_id, user_id)
+
     job = create_job(project_id, job_type="full-pipeline", stage_name="Uploading Video")
     _submit_protected_job(_run_full_pipeline_worker, project_id, job["id"])
     res = _serialize_project(project)
@@ -1058,15 +1216,27 @@ async def api_import_authorized_url(request: Request, payload: ExternalImportReq
 
 
 @app.get("/api/projects")
-def api_list_projects():
-    return [_serialize_project(p) for p in list_projects()]
+def api_list_projects(request: Request):
+    all_projects = [
+        p for p in list_projects() if str(p.get("status") or "").lower() != "expired"
+    ]
+    if SUPABASE_URL and SUPABASE_API_KEY:
+        user_id = _get_authenticated_user_id(request, required=False)
+        if not user_id:
+            return []
+        with _OWNERS_LOCK:
+            owners = _read_owners_unlocked()
+        user_projects = [p for p in all_projects if owners.get(str(p["id"])) == user_id]
+        return [_serialize_project(p) for p in user_projects]
+    return [_serialize_project(p) for p in all_projects]
 
 
 @app.get("/api/projects/{project_id}")
-def api_get_project(project_id: str):
+def api_get_project(request: Request, project_id: str):
+    _assert_project_access_if_authenticated(request, project_id)
     project = get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found.")
+    if not project or str(project.get("status") or "").lower() == "expired":
+        raise HTTPException(status_code=404, detail="Project not found or expired.")
     return _serialize_project(project)
 
 
@@ -1089,6 +1259,7 @@ async def api_project_events(project_id: str):
 
 @app.post("/api/projects/{project_id}/retry")
 def api_retry_project(request: Request, project_id: str):
+    _assert_project_access_if_authenticated(request, project_id)
     _enforce_rate_limit(request)
     _check_queue_capacity()
     try:
@@ -1096,8 +1267,8 @@ def api_retry_project(request: Request, project_id: str):
     except FFmpegNotAvailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     project = get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found.")
+    if not project or str(project.get("status") or "").lower() == "expired":
+        raise HTTPException(status_code=404, detail="Project not found or expired.")
     if not Path(project["source_path"]).exists():
         raise HTTPException(status_code=400, detail="Original source file no longer exists on server.")
 
@@ -1163,7 +1334,8 @@ class RerenderRequest(BaseModel):
 
 
 @app.post("/api/projects/{project_id}/clips/{clip_id}/rerender")
-def api_rerender_clip(project_id: str, clip_id: str, req: RerenderRequest):
+def api_rerender_clip(request: Request, project_id: str, clip_id: str, req: RerenderRequest):
+    _assert_project_access_if_authenticated(request, project_id)
     try:
         require_ffmpeg()
     except FFmpegNotAvailableError as exc:
@@ -1171,8 +1343,8 @@ def api_rerender_clip(project_id: str, clip_id: str, req: RerenderRequest):
 
     project = get_project(project_id)
     clip = get_clip(project_id, clip_id)
-    if not project or not clip:
-        raise HTTPException(status_code=404, detail="Project or clip not found.")
+    if not project or not clip or str(project.get("status") or "").lower() == "expired":
+        raise HTTPException(status_code=404, detail="Project or clip not found (may have expired).")
 
     start_s = req.start_sec if req.start_sec is not None else float(clip["start_sec"])
     end_s = req.end_sec if req.end_sec is not None else float(clip["end_sec"])
@@ -1217,7 +1389,8 @@ def api_rerender_clip(project_id: str, clip_id: str, req: RerenderRequest):
 
 
 @app.delete("/api/projects/{project_id}/clips/{clip_id}")
-def api_delete_clip(project_id: str, clip_id: str):
+def api_delete_clip(request: Request, project_id: str, clip_id: str):
+    _assert_project_access_if_authenticated(request, project_id)
     if not delete_clip_record(project_id, clip_id):
         raise HTTPException(status_code=404, detail="Clip not found.")
     return {"deleted": True, "clip_id": clip_id}
