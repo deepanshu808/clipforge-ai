@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Archive,
   ArrowRight,
+  Ban,
   Bot,
   Calendar,
   CheckCircle2,
@@ -20,6 +21,7 @@ import {
   FolderOpen,
   Hash,
   Home,
+  Infinity as InfinityIcon,
   Key,
   Link2,
   Loader2,
@@ -28,7 +30,9 @@ import {
   LogOut,
   Mail,
   Menu,
+  Minus,
   Plus,
+  Radio,
   RefreshCw,
   RotateCcw,
   RotateCw,
@@ -38,6 +42,8 @@ import {
   Server,
   Settings,
   Shield,
+  ShieldAlert,
+  ShieldCheck,
   Sliders,
   Sparkles,
   Subtitles,
@@ -55,7 +61,8 @@ const DEFAULT_BACKEND_URL = "https://clipforge-ai-production-b45ab787.up.railway
 const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || "").trim();
 const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY || "").trim();
 const ADMIN_EMAIL = (import.meta.env.VITE_ADMIN_EMAIL || "").trim().toLowerCase();
-const SUPPORT_EMAIL = (import.meta.env.VITE_SUPPORT_EMAIL || ADMIN_EMAIL || "support@clipforge.ai").trim();
+const SUPPORT_EMAIL = (import.meta.env.VITE_SUPPORT_EMAIL || "eclipsesenpaie@gmail.com").trim();
+const UNLIMITED_THRESHOLD = 9999;
 
 const supabase =
   SUPABASE_URL && SUPABASE_ANON_KEY ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
@@ -102,6 +109,21 @@ const DEFAULT_PLANS = [
       "All Pro features + Early access",
     ],
   },
+  {
+    id: "unlimited",
+    name: "Unlimited",
+    price_inr: 1499,
+    price_usd: 19,
+    video_limit: 999999,
+    duration_days: 30,
+    features: [
+      "Unlimited videos / month (No credit limit)",
+      "Highest priority dedicated queue",
+      "All 6 animated ASS caption styles",
+      "Batch ZIP downloads & HD 1080p",
+      "Priority creator support",
+    ],
+  },
 ];
 
 const CLIPPING_MODES = [
@@ -146,6 +168,10 @@ const PIPELINE_STAGES = [
   "Verifying Output",
   "Completed",
 ];
+
+function isUnlimitedPlan(planId, videoLimit) {
+  return planId === "unlimited" || Number(videoLimit) >= UNLIMITED_THRESHOLD;
+}
 
 function formatTime(seconds) {
   const s = Math.max(0, Number(seconds) || 0);
@@ -202,6 +228,12 @@ function formatDateShort(iso) {
   }
 }
 
+function isRecentlyActive(lastSeenIso) {
+  if (!lastSeenIso) return false;
+  const diff = Date.now() - new Date(lastSeenIso).getTime();
+  return diff >= 0 && diff < 2 * 60 * 1000; // Active in last 2 minutes
+}
+
 function loadRazorpayScript() {
   return new Promise((resolve) => {
     if (window.Razorpay) return resolve(true);
@@ -226,11 +258,11 @@ export default function App() {
   const [showPassword, setShowPassword] = useState(false);
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [authError, setAuthError] = useState("");
-  const [authNotice, setAuthNotice] = useState(null); // { type: 'confirm' | 'reset', email: string }
+  const [authNotice, setAuthNotice] = useState(null);
   const [resendingEmail, setResendingEmail] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
 
-  // Password Recovery (Set New Password) State
+  // Password Recovery State
   const [recoveryModalOpen, setRecoveryModalOpen] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
@@ -242,16 +274,21 @@ export default function App() {
   const [plansConfig, setPlansConfig] = useState(DEFAULT_PLANS);
   const [payingPlanId, setPayingPlanId] = useState(null);
 
+  // Live Online Users (Supabase Realtime Presence)
+  const [onlineUserIds, setOnlineUserIds] = useState([]);
+
   // Admin Panel State
-  const [adminSubTab, setAdminSubTab] = useState("pricing"); // pricing | users | monitor | settings
+  const [adminSubTab, setAdminSubTab] = useState("users"); // users | pricing | monitor | settings
   const [adminPlanDrafts, setAdminPlanDrafts] = useState(DEFAULT_PLANS);
   const [savingPlans, setSavingPlans] = useState(false);
   const [adminUsers, setAdminUsers] = useState([]);
   const [loadingAdminUsers, setLoadingAdminUsers] = useState(false);
   const [adminUserSearch, setAdminUserSearch] = useState("");
   const [updatingUserId, setUpdatingUserId] = useState(null);
+  const [customCreditInputs, setCustomCreditInputs] = useState({});
+  const [adminLastSynced, setAdminLastSynced] = useState(null);
 
-  // Policy Modal State (Privacy, Terms, Refund, Contact)
+  // Policy Modal State
   const [policyModal, setPolicyModal] = useState(null);
 
   // Backend Connection & Health
@@ -326,7 +363,7 @@ export default function App() {
     },
   ]);
 
-  // Billing Currency Toggle
+  // Billing Currency Toggle & Toast
   const [currency, setCurrency] = useState("INR");
   const [toast, setToast] = useState(null);
   const toastTimerRef = useRef(null);
@@ -343,9 +380,21 @@ export default function App() {
     return user.email.toLowerCase() === ADMIN_EMAIL;
   }, [user]);
 
+  const isUserBlocked = useMemo(() => {
+    if (isAdmin) return false;
+    return Boolean(userPlan?.is_blocked || userPlan?.status === "blocked");
+  }, [userPlan, isAdmin]);
+
   const effectivePlan = useMemo(() => {
     if (!userPlan) {
-      return { planId: "free", daysLeft: 0, isPaid: false, validUntil: null, videosUsed: 0 };
+      return {
+        planId: "free",
+        daysLeft: 0,
+        isPaid: false,
+        validUntil: null,
+        videosUsed: 0,
+        bonusCredits: 0,
+      };
     }
     const daysLeft = getPlanDaysLeft(userPlan.valid_until);
     const isPaid =
@@ -356,10 +405,10 @@ export default function App() {
       isPaid,
       validUntil: isPaid ? userPlan.valid_until : null,
       videosUsed: Number(userPlan.videos_used) || 0,
+      bonusCredits: Number(userPlan.bonus_credits) || 0,
     };
   }, [userPlan]);
 
-  // Live Credits Calculation (synced with Supabase plan_config & user_plans)
   const activePlanConfig = useMemo(() => {
     return (
       plansConfig.find((p) => p.id === effectivePlan.planId) ||
@@ -369,15 +418,39 @@ export default function App() {
   }, [plansConfig, effectivePlan.planId]);
 
   const creditsInfo = useMemo(() => {
-    const total = Math.max(1, Number(activePlanConfig?.video_limit) || 5);
+    const unlimited = isUnlimitedPlan(effectivePlan.planId, activePlanConfig?.video_limit);
     const used = Math.max(0, Number(effectivePlan.videosUsed) || 0);
+    if (unlimited) {
+      return {
+        isUnlimited: true,
+        total: Infinity,
+        used,
+        remaining: Infinity,
+        usedPercent: 0,
+        remainingPercent: 100,
+        isLow: false,
+        isExhausted: false,
+      };
+    }
+    const baseLimit = Math.max(1, Number(activePlanConfig?.video_limit) || 5);
+    const bonus = Number(effectivePlan.bonusCredits) || 0;
+    const total = Math.max(0, baseLimit + bonus);
     const remaining = Math.max(0, total - used);
-    const usedPercent = Math.min(100, Math.round((used / total) * 100));
+    const usedPercent = total === 0 ? 100 : Math.min(100, Math.round((used / total) * 100));
     const remainingPercent = Math.max(0, 100 - usedPercent);
     const isLow = remaining > 0 && remaining <= Math.max(1, Math.ceil(total * 0.2));
-    const isExhausted = remaining === 0;
-    return { total, used, remaining, usedPercent, remainingPercent, isLow, isExhausted };
-  }, [activePlanConfig, effectivePlan.videosUsed]);
+    const isExhausted = remaining <= 0;
+    return {
+      isUnlimited: false,
+      total,
+      used,
+      remaining,
+      usedPercent,
+      remainingPercent,
+      isLow,
+      isExhausted,
+    };
+  }, [activePlanConfig, effectivePlan]);
 
   // Resend cooldown timer
   useEffect(() => {
@@ -386,7 +459,7 @@ export default function App() {
     return () => clearTimeout(t);
   }, [resendCooldown]);
 
-  // Load live plans from Supabase
+  // Load live plans from Supabase (merges Unlimited if missing)
   const fetchPlansConfig = async () => {
     if (!supabase) return;
     try {
@@ -395,36 +468,117 @@ export default function App() {
         .select("*")
         .order("price_inr", { ascending: true });
       if (!error && Array.isArray(data) && data.length > 0) {
-        const order = { free: 0, pro: 1, premium: 2 };
-        const sorted = [...data].sort(
-          (a, b) => (order[a.id] ?? 99) - (order[b.id] ?? 99)
-        );
+        const merged = [...data];
+        for (const def of DEFAULT_PLANS) {
+          if (!merged.some((p) => p.id === def.id)) {
+            merged.push(def);
+          }
+        }
+        const order = { free: 0, pro: 1, premium: 2, unlimited: 3 };
+        const sorted = merged.sort((a, b) => (order[a.id] ?? 99) - (order[b.id] ?? 99));
         setPlansConfig(sorted);
         setAdminPlanDrafts(sorted.map((p) => ({ ...p })));
       }
     } catch {}
   };
 
-  const fetchUserPlan = async (userId) => {
+  // Fetch user plan and auto-create row if missing so Admin always sees every user
+  const fetchUserPlan = async (userObj) => {
+    const userId = typeof userObj === "string" ? userObj : userObj?.id;
+    const userEmail = typeof userObj === "object" ? userObj?.email : user?.email;
     if (!supabase || !userId) {
       setUserPlan(null);
       return;
     }
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("user_plans")
         .select("*")
         .eq("user_id", userId)
         .maybeSingle();
-      setUserPlan(data || { user_id: userId, plan_id: "free", status: "active", videos_used: 0 });
+
+      if (!error && data) {
+        setUserPlan(data);
+        // Update email / last_seen_at silently
+        supabase
+          .from("user_plans")
+          .update({
+            email: data.email || (userEmail || "").toLowerCase(),
+            last_seen_at: new Date().toISOString(),
+          })
+          .eq("user_id", userId)
+          .then(() => {});
+        return;
+      }
+
+      // Row missing -> create default Free row so Admin sees user & credits save properly
+      const defaultRow = {
+        user_id: userId,
+        email: (userEmail || "").toLowerCase(),
+        plan_id: "free",
+        status: "active",
+        videos_used: 0,
+        bonus_credits: 0,
+        is_blocked: false,
+        last_seen_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      const { data: inserted } = await supabase
+        .from("user_plans")
+        .upsert(defaultRow, { onConflict: "user_id" })
+        .select()
+        .maybeSingle();
+
+      setUserPlan(inserted || defaultRow);
     } catch {
-      setUserPlan({ user_id: userId, plan_id: "free", status: "active", videos_used: 0 });
+      setUserPlan({
+        user_id: userId,
+        email: (userEmail || "").toLowerCase(),
+        plan_id: "free",
+        status: "active",
+        videos_used: 0,
+        bonus_credits: 0,
+        is_blocked: false,
+      });
     }
   };
 
-  const fetchAdminUsers = async () => {
+  // Deduct 1 credit atomically in Supabase when video upload/import succeeds
+  const consumeOneCredit = async () => {
+    if (!supabase || !user?.id || creditsInfo.isUnlimited) return;
+    const nextUsed = (Number(userPlan?.videos_used) || 0) + 1;
+    // Optimistic local update immediately
+    setUserPlan((prev) =>
+      prev ? { ...prev, videos_used: nextUsed } : { user_id: user.id, plan_id: "free", status: "active", videos_used: nextUsed, bonus_credits: 0 }
+    );
+    try {
+      const { data, error } = await supabase
+        .from("user_plans")
+        .upsert(
+          {
+            user_id: user.id,
+            email: (user.email || "").toLowerCase(),
+            plan_id: userPlan?.plan_id || "free",
+            status: userPlan?.status || "active",
+            videos_used: nextUsed,
+            bonus_credits: Number(userPlan?.bonus_credits) || 0,
+            is_blocked: Boolean(userPlan?.is_blocked),
+            last_seen_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id" }
+        )
+        .select()
+        .maybeSingle();
+      if (!error && data) {
+        setUserPlan(data);
+      }
+    } catch {}
+  };
+
+  const fetchAdminUsers = async (silent = false) => {
     if (!supabase || !isAdmin) return;
-    setLoadingAdminUsers(true);
+    if (!silent) setLoadingAdminUsers(true);
     try {
       const { data, error } = await supabase
         .from("user_plans")
@@ -432,16 +586,17 @@ export default function App() {
         .order("updated_at", { ascending: false });
       if (!error && Array.isArray(data)) {
         setAdminUsers(data);
+        setAdminLastSynced(new Date().toLocaleTimeString("en-IN"));
       }
     } catch {} finally {
-      setLoadingAdminUsers(false);
+      if (!silent) setLoadingAdminUsers(false);
     }
   };
 
+  // Auth Session & Recovery Listener
   useEffect(() => {
     fetchPlansConfig();
 
-    // Detect recovery link from URL hash if user came from Forgot Password email
     if (typeof window !== "undefined" && window.location.hash.includes("type=recovery")) {
       setRecoveryModalOpen(true);
     }
@@ -453,7 +608,7 @@ export default function App() {
 
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session || null);
-      if (data.session?.user?.id) fetchUserPlan(data.session.user.id);
+      if (data.session?.user) fetchUserPlan(data.session.user);
       setAuthLoading(false);
     });
 
@@ -462,8 +617,8 @@ export default function App() {
       if (event === "PASSWORD_RECOVERY") {
         setRecoveryModalOpen(true);
       }
-      if (nextSession?.user?.id) {
-        fetchUserPlan(nextSession.user.id);
+      if (nextSession?.user) {
+        fetchUserPlan(nextSession.user);
       } else {
         setUserPlan(null);
       }
@@ -472,15 +627,86 @@ export default function App() {
     return () => listener?.subscription?.unsubscribe();
   }, []);
 
-  // Redirect away from admin tab if non-admin
+  // Realtime Presence (Live Online Users) + Live Ban/Credit Sync for logged-in user
+  useEffect(() => {
+    if (!supabase || !user?.id) {
+      setOnlineUserIds([]);
+      return;
+    }
+
+    // 1. Track live online presence across all active tabs
+    const presenceChannel = supabase.channel("clipforge-online-users", {
+      config: { presence: { key: user.id } },
+    });
+
+    presenceChannel
+      .on("presence", { event: "sync" }, () => {
+        const state = presenceChannel.presenceState();
+        setOnlineUserIds(Object.keys(state || {}));
+      })
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await presenceChannel.track({
+            user_id: user.id,
+            email: (user.email || "").toLowerCase(),
+            online_at: new Date().toISOString(),
+          });
+        }
+      });
+
+    // 2. Listen for instant admin changes (block/unblock, credits +/-, plan upgrade)
+    const planSyncChannel = supabase
+      .channel(`user-plan-live-${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "user_plans",
+        },
+        (payload) => {
+          if (payload.new && payload.new.user_id === user.id) {
+            setUserPlan(payload.new);
+          }
+          if (isAdmin) {
+            fetchAdminUsers(true);
+          }
+        }
+      )
+      .subscribe();
+
+    // 3. Heartbeat every 60s to keep last_seen_at fresh
+    const heartbeat = setInterval(() => {
+      supabase
+        .from("user_plans")
+        .update({ last_seen_at: new Date().toISOString() })
+        .eq("user_id", user.id)
+        .then(() => {});
+    }, 60000);
+
+    return () => {
+      clearInterval(heartbeat);
+      supabase.removeChannel(presenceChannel);
+      supabase.removeChannel(planSyncChannel);
+    };
+  }, [user?.id, isAdmin]);
+
+  // Admin Panel: Live auto-polling for Users + Active Queue Jobs every 8 seconds
   useEffect(() => {
     if (activeTab === "admin_panel" && !isAdmin) {
       setActiveTab("dashboard");
+      return;
     }
     if (activeTab === "admin_panel" && isAdmin) {
-      fetchAdminUsers();
+      fetchAdminUsers(false);
+      checkBackendHealth(apiBaseUrl, true);
+      const timer = setInterval(() => {
+        fetchAdminUsers(true);
+        checkBackendHealth(apiBaseUrl, true);
+      }, 8000);
+      return () => clearInterval(timer);
     }
-  }, [activeTab, isAdmin]);
+  }, [activeTab, isAdmin, apiBaseUrl]);
 
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
@@ -498,12 +724,10 @@ export default function App() {
       return;
     }
 
-    // Forgot Password Mode
     if (authMode === "forgot") {
       setAuthSubmitting(true);
       try {
-        const redirectTo =
-          typeof window !== "undefined" ? window.location.origin : undefined;
+        const redirectTo = typeof window !== "undefined" ? window.location.origin : undefined;
         const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
           redirectTo,
         });
@@ -531,8 +755,7 @@ export default function App() {
     setAuthSubmitting(true);
     try {
       if (authMode === "signup") {
-        const emailRedirectTo =
-          typeof window !== "undefined" ? window.location.origin : undefined;
+        const emailRedirectTo = typeof window !== "undefined" ? window.location.origin : undefined;
         const { data, error } = await supabase.auth.signUp({
           email: cleanEmail,
           password: authPassword,
@@ -592,8 +815,7 @@ export default function App() {
     }
     setResendingEmail(true);
     try {
-      const emailRedirectTo =
-        typeof window !== "undefined" ? window.location.origin : undefined;
+      const emailRedirectTo = typeof window !== "undefined" ? window.location.origin : undefined;
       const { error } = await supabase.auth.resend({
         type: "signup",
         email: targetEmail,
@@ -681,12 +903,16 @@ export default function App() {
         );
       }
 
+      const creditLabel = isUnlimitedPlan(plan.id, plan.video_limit)
+        ? "Unlimited Credits"
+        : `${plan.video_limit} Credits`;
+
       const options = {
         key: orderData.key_id,
         amount: orderData.amount,
         currency: orderData.currency || "INR",
         name: "ClipForge AI",
-        description: `${plan.name} Plan (${plan.duration_days || 30} Days · ${plan.video_limit} Credits)`,
+        description: `${plan.name} Plan (${plan.duration_days || 30} Days · ${creditLabel})`,
         order_id: orderData.order_id,
         prefill: {
           email: user.email,
@@ -709,9 +935,9 @@ export default function App() {
             });
             const verifyData = await verifyResp.json();
             if (!verifyResp.ok) throw new Error(verifyData.detail || "Payment verification failed");
-            await fetchUserPlan(user.id);
+            await fetchUserPlan(user);
             showToast(
-              `Payment successful! ${plan.name} plan (${plan.video_limit} credits) ${plan.duration_days || 30} din ke liye active ho gaya.`,
+              `Payment successful! ${plan.name} plan (${creditLabel}) ${plan.duration_days || 30} din ke liye active ho gaya.`,
               "success"
             );
           } catch (verifyErr) {
@@ -735,6 +961,10 @@ export default function App() {
     setSavingPlans(true);
     try {
       for (const draft of adminPlanDrafts) {
+        const limitVal =
+          draft.id === "unlimited"
+            ? 999999
+            : Math.max(1, Number(draft.video_limit) || 5);
         const { error } = await supabase
           .from("plan_config")
           .upsert({
@@ -742,7 +972,7 @@ export default function App() {
             name: draft.name,
             price_inr: Math.max(0, Number(draft.price_inr) || 0),
             price_usd: Math.max(0, Number(draft.price_usd) || 0),
-            video_limit: Math.max(1, Number(draft.video_limit) || 5),
+            video_limit: limitVal,
             duration_days: Math.max(1, Number(draft.duration_days) || 30),
             features: Array.isArray(draft.features) ? draft.features : [],
             updated_at: new Date().toISOString(),
@@ -775,14 +1005,14 @@ export default function App() {
         .from("user_plans")
         .update({
           plan_id: nextPlanId,
-          status: "active",
+          status: targetUser.is_blocked ? "blocked" : "active",
           valid_until: validUntil,
           updated_at: new Date().toISOString(),
         })
         .eq("user_id", targetUser.user_id);
       if (error) throw error;
-      await fetchAdminUsers();
-      if (user?.id === targetUser.user_id) await fetchUserPlan(user.id);
+      await fetchAdminUsers(true);
+      if (user?.id === targetUser.user_id) await fetchUserPlan(user);
       showToast(
         nextPlanId === "free"
           ? `${targetUser.email} reset to Free plan.`
@@ -796,7 +1026,48 @@ export default function App() {
     }
   };
 
-  // Admin: Reset a user's used credits to 0
+  // Admin: Increase or Decrease User Credits by exact delta (+1, -1, +5, custom)
+  const handleAdminAdjustCredits = async (targetUser, delta) => {
+    if (!supabase || !isAdmin || !delta) return;
+    const planLimit = getPlanLimitById(targetUser.plan_id);
+    if (isUnlimitedPlan(targetUser.plan_id, planLimit)) {
+      showToast("Yeh user Unlimited plan par hai — isme credit limit nahi hoti.", "info");
+      return;
+    }
+
+    setUpdatingUserId(targetUser.user_id);
+    try {
+      const currentUsed = Number(targetUser.videos_used) || 0;
+      const currentBonus = Number(targetUser.bonus_credits) || 0;
+      // Clamp so remaining credits never go below 0
+      const minBonus = currentUsed - planLimit;
+      const nextBonus = Math.max(minBonus, currentBonus + Number(delta));
+
+      const { error } = await supabase
+        .from("user_plans")
+        .update({
+          bonus_credits: nextBonus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", targetUser.user_id);
+      if (error) throw error;
+
+      await fetchAdminUsers(true);
+      if (user?.id === targetUser.user_id) await fetchUserPlan(user);
+      showToast(
+        delta > 0
+          ? `${targetUser.email} ko +${delta} credits de diye gaye!`
+          : `${targetUser.email} se ${Math.abs(delta)} credit kam kar diye gaye.`,
+        "success"
+      );
+    } catch (err) {
+      showToast(err.message || "Credits update nahi ho paye.", "error");
+    } finally {
+      setUpdatingUserId(null);
+    }
+  };
+
+  // Admin: Reset user used credits & bonus back to fresh plan quota
   const handleAdminResetCredits = async (targetUser) => {
     if (!supabase || !isAdmin) return;
     setUpdatingUserId(targetUser.user_id);
@@ -805,13 +1076,14 @@ export default function App() {
         .from("user_plans")
         .update({
           videos_used: 0,
+          bonus_credits: 0,
           updated_at: new Date().toISOString(),
         })
         .eq("user_id", targetUser.user_id);
       if (error) throw error;
-      await fetchAdminUsers();
-      if (user?.id === targetUser.user_id) await fetchUserPlan(user.id);
-      showToast(`${targetUser.email} ke credits refill (0 used) ho gaye.`, "success");
+      await fetchAdminUsers(true);
+      if (user?.id === targetUser.user_id) await fetchUserPlan(user);
+      showToast(`${targetUser.email} ke credits full refill ho gaye.`, "success");
     } catch (err) {
       showToast(err.message || "Could not reset credits.", "error");
     } finally {
@@ -819,9 +1091,54 @@ export default function App() {
     }
   };
 
-  const checkBackendHealth = async (targetUrl = apiBaseUrl) => {
+  // Admin: Block / Unblock (Ban) User
+  const handleAdminToggleBlockUser = async (targetUser) => {
+    if (!supabase || !isAdmin) return;
+    if ((targetUser.email || "").toLowerCase() === ADMIN_EMAIL) {
+      showToast("Aap apni khud ki Admin ID block nahi kar sakte.", "error");
+      return;
+    }
+
+    const willBlock = !Boolean(targetUser.is_blocked || targetUser.status === "blocked");
+    let reason = targetUser.blocked_reason || "";
+    if (willBlock) {
+      const inputReason = window.prompt(
+        `Block reason for ${targetUser.email} (optional):`,
+        "Terms of Service violation / Misuse detected"
+      );
+      if (inputReason === null) return; // Cancelled
+      reason = inputReason.trim() || "Account suspended by administrator for policy violation.";
+    }
+
+    setUpdatingUserId(targetUser.user_id);
+    try {
+      const { error } = await supabase
+        .from("user_plans")
+        .update({
+          is_blocked: willBlock,
+          status: willBlock ? "blocked" : "active",
+          blocked_reason: willBlock ? reason : null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", targetUser.user_id);
+      if (error) throw error;
+      await fetchAdminUsers(true);
+      showToast(
+        willBlock
+          ? `${targetUser.email} ko BLOCK / BAN kar diya gaya hai.`
+          : `${targetUser.email} ko UNBLOCK kar diya gaya hai.`,
+        willBlock ? "error" : "success"
+      );
+    } catch (err) {
+      showToast(err.message || "Block status update fail ho gaya.", "error");
+    } finally {
+      setUpdatingUserId(null);
+    }
+  };
+
+  const checkBackendHealth = async (targetUrl = apiBaseUrl, silent = false) => {
     const clean = normalizeBaseUrl(targetUrl);
-    setHealth((prev) => ({ ...prev, checking: true }));
+    if (!silent) setHealth((prev) => ({ ...prev, checking: true }));
     try {
       const resp = await fetch(`${clean}/api/health`, { method: "GET" });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -841,19 +1158,13 @@ export default function App() {
       });
       return true;
     } catch (err) {
-      setHealth({
+      setHealth((prev) => ({
+        ...prev,
         checking: false,
         online: false,
         ffmpeg_available: false,
-        ffmpeg_version: null,
         ffmpeg_error: `Cannot reach backend (${err.message}).`,
-        storage_writable: false,
-        ai_configured: false,
-        max_upload_mb: 150,
-        active_jobs: 0,
-        max_active_jobs: 6,
-        rate_limit: "5 uploads / 15 min",
-      });
+      }));
       return false;
     }
   };
@@ -875,7 +1186,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || isUserBlocked) return;
     checkBackendHealth(apiBaseUrl).then((ok) => {
       if (ok) fetchProjects(apiBaseUrl);
     });
@@ -883,7 +1194,7 @@ export default function App() {
       if (eventSourceRef.current) eventSourceRef.current.close();
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
     };
-  }, [apiBaseUrl, user?.id]);
+  }, [apiBaseUrl, user?.id, isUserBlocked]);
 
   useEffect(() => {
     if (!selectedFile) {
@@ -921,13 +1232,14 @@ export default function App() {
         stopTracking();
         setSelectedProjectId(data.id);
         fetchProjects(clean);
-        if (user?.id) fetchUserPlan(user.id);
+        checkBackendHealth(clean, true);
         showToast(
           `Done! ${data.verified_clip_count || data.clips?.length || 0} real MP4 clips ready.`,
           "success"
         );
       } else if (data.status === "failed") {
         stopTracking();
+        checkBackendHealth(clean, true);
         showToast(
           `Failed at ${data.failed_stage || "processing"}: ${data.error_message || "Error"}`,
           "error"
@@ -1011,10 +1323,15 @@ export default function App() {
 
   const handleStartProcessing = async () => {
     setSubmitError("");
-    if (creditsInfo.isExhausted && !isAdmin) {
+    if (isUserBlocked) {
+      setSubmitError("Aapka account suspend hai. Support se contact karein.");
+      return;
+    }
+    if (!creditsInfo.isUnlimited && creditsInfo.isExhausted) {
       setSubmitError(
-        "Aapke is mahine ke saare credits khatam ho gaye hain. Aur videos process karne ke liye Plans & Pricing se upgrade karein."
+        "Aapke saare video credits khatam ho gaye hain (0 left). Nayi video banane ke liye Plans & Pricing se plan upgrade karein."
       );
+      showToast("Credits khatam ho gaye hain! Plan upgrade karein.", "error");
       return;
     }
     if (!health.online || !health.ffmpeg_available) {
@@ -1056,11 +1373,17 @@ export default function App() {
         });
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
+        await consumeOneCredit();
         setActiveJobProject(data);
         setSelectedProjectId(data.id);
         startTrackingProject(data.id);
-        if (user?.id) fetchUserPlan(user.id);
-        showToast("Authorized URL imported. Video processing started!", "success");
+        checkBackendHealth(clean, true);
+        showToast(
+          creditsInfo.isUnlimited
+            ? "Video processing started! (Unlimited Plan)"
+            : "1 credit used. Video processing started!",
+          "success"
+        );
       } catch (err) {
         setSubmitError(err.message || "URL import failed.");
       } finally {
@@ -1113,11 +1436,17 @@ export default function App() {
         xhr.send(formData);
       });
 
+      await consumeOneCredit();
       setActiveJobProject(data);
       setSelectedProjectId(data.id);
       startTrackingProject(data.id);
-      if (user?.id) fetchUserPlan(user.id);
-      showToast("Video uploaded! AI clipping pipeline is running.", "success");
+      checkBackendHealth(clean, true);
+      showToast(
+        creditsInfo.isUnlimited
+          ? "Video uploaded! AI clipping pipeline is running."
+          : "Video uploaded! 1 credit used — AI clipping pipeline is running.",
+        "success"
+      );
     } catch (err) {
       setSubmitError(err.message || "Upload failed.");
     } finally {
@@ -1357,21 +1686,31 @@ export default function App() {
     return adminUsers.filter(
       (u) =>
         (u.email || "").toLowerCase().includes(q) ||
-        (u.plan_id || "").toLowerCase().includes(q)
+        (u.plan_id || "").toLowerCase().includes(q) ||
+        (u.is_blocked ? "blocked" : "active").includes(q)
     );
   }, [adminUsers, adminUserSearch]);
 
   const adminStats = useMemo(() => {
     const paidUsers = adminUsers.filter(
-      (u) => u.plan_id !== "free" && u.status === "active" && getPlanDaysLeft(u.valid_until) > 0
+      (u) =>
+        u.plan_id !== "free" &&
+        !u.is_blocked &&
+        u.status === "active" &&
+        getPlanDaysLeft(u.valid_until) > 0
     );
+    const blockedCount = adminUsers.filter((u) => u.is_blocked || u.status === "blocked").length;
+    const liveIds = new Set(onlineUserIds);
+    adminUsers.forEach((u) => {
+      if (isRecentlyActive(u.last_seen_at)) liveIds.add(u.user_id);
+    });
     return {
       total: adminUsers.length,
       paid: paidUsers.length,
-      pro: paidUsers.filter((u) => u.plan_id === "pro").length,
-      premium: paidUsers.filter((u) => u.plan_id === "premium").length,
+      blocked: blockedCount,
+      liveOnline: Math.max(liveIds.size, user ? 1 : 0),
     };
-  }, [adminUsers]);
+  }, [adminUsers, onlineUserIds, user]);
 
   const getPlanLimitById = (planId) => {
     const found =
@@ -1404,13 +1743,11 @@ export default function App() {
       ) : !user ? (
         /* ================= 2. MANDATORY LOGIN / SIGN UP GATE ================= */
         <div className="min-h-screen bg-[#07070f] text-slate-100 flex flex-col justify-between relative overflow-hidden">
-          {/* Ambient Glows */}
           <div className="fixed inset-0 pointer-events-none overflow-hidden">
             <div className="absolute -top-32 -left-24 w-[28rem] h-[28rem] bg-violet-600/20 blur-[130px] rounded-full" />
             <div className="absolute bottom-0 right-0 w-[28rem] h-[28rem] bg-cyan-500/15 blur-[130px] rounded-full" />
           </div>
 
-          {/* Top Bar */}
           <header className="relative z-10 max-w-6xl w-full mx-auto px-5 py-5 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-violet-500/25">
@@ -1428,9 +1765,7 @@ export default function App() {
             </div>
           </header>
 
-          {/* Center Split Hero + Auth Card */}
           <main className="relative z-10 max-w-6xl w-full mx-auto px-5 py-6 lg:py-10 grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
-            {/* Left: Product Pitch */}
             <div className="lg:col-span-7 space-y-6">
               <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-violet-500/15 border border-violet-400/30 text-violet-200 text-xs font-semibold">
                 <Sparkles className="w-3.5 h-3.5 text-cyan-300" />
@@ -1451,7 +1786,6 @@ export default function App() {
                 ready kar deta hai.
               </p>
 
-              {/* Feature Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-1">
                 {[
                   {
@@ -1497,10 +1831,8 @@ export default function App() {
               </div>
             </div>
 
-            {/* Right: Auth Card */}
             <div className="lg:col-span-5">
               <div className="rounded-3xl bg-[#0e0e1f]/95 border border-white/15 p-6 sm:p-7 shadow-2xl shadow-violet-950/40 backdrop-blur-xl space-y-5">
-                {/* Mode Switcher Tabs (Login / Sign Up) */}
                 {authMode !== "forgot" ? (
                   <div className="grid grid-cols-2 p-1 rounded-xl bg-black/40 border border-white/10 text-xs font-bold">
                     <button
@@ -1569,7 +1901,6 @@ export default function App() {
                   </p>
                 </div>
 
-                {/* Clear Email Confirmation / Reset Guide Box */}
                 {authNotice?.type === "confirm" && (
                   <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-400/40 space-y-2.5 text-xs">
                     <div className="flex items-center gap-2 font-bold text-amber-200">
@@ -1674,11 +2005,7 @@ export default function App() {
                           className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1"
                           title={showPassword ? "Hide password" : "Show password"}
                         >
-                          {showPassword ? (
-                            <EyeOff className="w-4 h-4" />
-                          ) : (
-                            <Eye className="w-4 h-4" />
-                          )}
+                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
                       </div>
                     </div>
@@ -1748,7 +2075,6 @@ export default function App() {
             </div>
           </main>
 
-          {/* Footer with Razorpay Compliance Links (Always Accessible) */}
           <footer className="relative z-10 border-t border-white/10 px-5 py-5 text-xs text-slate-400">
             <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
               <div>© {new Date().getFullYear()} ClipForge AI · Jaipur, Rajasthan, India</div>
@@ -1769,16 +2095,46 @@ export default function App() {
             </div>
           </footer>
         </div>
+      ) : isUserBlocked ? (
+        /* ================= 2.5 BLOCKED / SUSPENDED USER SCREEN ================= */
+        <div className="min-h-screen bg-[#07070f] text-slate-100 flex items-center justify-center p-5 relative overflow-hidden">
+          <div className="absolute -top-28 -left-24 w-96 h-96 bg-rose-600/20 blur-[130px] rounded-full" />
+          <div className="relative z-10 w-full max-w-md rounded-3xl bg-[#100d1a] border border-rose-500/40 p-7 text-center space-y-5 shadow-2xl">
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-rose-500/15 border border-rose-500/40 flex items-center justify-center">
+              <Ban className="w-8 h-8 text-rose-400" />
+            </div>
+            <div className="space-y-1.5">
+              <h2 className="text-xl font-extrabold text-white">Account Suspended / Blocked</h2>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Aapki ID (<span className="text-rose-300 font-semibold">{user.email}</span>) ko
+                ClipForge AI administrator ne temporarily block kar diya hai.
+              </p>
+            </div>
+            {userPlan?.blocked_reason && (
+              <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-200">
+                <strong>Reason:</strong> {userPlan.blocked_reason}
+              </div>
+            )}
+            <div className="p-3.5 rounded-xl bg-white/[0.04] border border-white/10 text-xs text-slate-300">
+              Agar aapko lagta hai ki yeh galti se hua hai, to support team ko email karein:{" "}
+              <span className="text-cyan-300 font-semibold block mt-1">{SUPPORT_EMAIL}</span>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="w-full py-3 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-xs font-bold text-white flex items-center justify-center gap-2"
+            >
+              <LogOut className="w-4 h-4" /> Sign Out
+            </button>
+          </div>
+        </div>
       ) : (
         /* ================= 3. FULL AUTHENTICATED STUDIO APP ================= */
         <div className="min-h-screen bg-[#07070f] text-slate-100 flex">
-          {/* Background Glow */}
           <div className="fixed inset-0 pointer-events-none overflow-hidden">
             <div className="absolute -top-32 -left-24 w-96 h-96 bg-violet-600/15 blur-[120px] rounded-full" />
             <div className="absolute bottom-0 right-0 w-96 h-96 bg-cyan-500/10 blur-[120px] rounded-full" />
           </div>
 
-          {/* Mobile Sidebar Backdrop */}
           {mobileMenuOpen && (
             <div
               className="fixed inset-0 bg-black/60 z-40 lg:hidden"
@@ -1856,7 +2212,9 @@ export default function App() {
                   <span className="font-semibold text-white truncate">{user.email}</span>
                   <span
                     className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase shrink-0 ${
-                      effectivePlan.planId === "premium"
+                      effectivePlan.planId === "unlimited"
+                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-400/30"
+                        : effectivePlan.planId === "premium"
                         ? "bg-amber-500/20 text-amber-300 border border-amber-400/30"
                         : effectivePlan.planId === "pro"
                         ? "bg-violet-500/25 text-violet-200 border border-violet-400/40"
@@ -1874,21 +2232,31 @@ export default function App() {
                       <Zap className="w-3 h-3 text-cyan-400" /> Credits Left
                     </span>
                     <span
-                      className={`font-bold ${
-                        creditsInfo.isExhausted
+                      className={`font-bold flex items-center gap-1 ${
+                        creditsInfo.isUnlimited
+                          ? "text-emerald-300"
+                          : creditsInfo.isExhausted
                           ? "text-rose-400"
                           : creditsInfo.isLow
                           ? "text-amber-300"
                           : "text-cyan-300"
                       }`}
                     >
-                      {creditsInfo.remaining} / {creditsInfo.total}
+                      {creditsInfo.isUnlimited ? (
+                        <>
+                          <InfinityIcon className="w-3.5 h-3.5" /> Unlimited
+                        </>
+                      ) : (
+                        `${creditsInfo.remaining} / ${creditsInfo.total}`
+                      )}
                     </span>
                   </div>
                   <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
                     <div
                       className={`h-full transition-all duration-500 ${
-                        creditsInfo.isExhausted
+                        creditsInfo.isUnlimited
+                          ? "bg-gradient-to-r from-emerald-400 to-cyan-400"
+                          : creditsInfo.isExhausted
                           ? "bg-rose-500"
                           : creditsInfo.isLow
                           ? "bg-amber-400"
@@ -1898,7 +2266,9 @@ export default function App() {
                     />
                   </div>
                   <div className="text-[10px] text-slate-500">
-                    Used: {creditsInfo.used} · Remaining: {creditsInfo.remaining}
+                    {creditsInfo.isUnlimited
+                      ? `Used this month: ${creditsInfo.used} videos`
+                      : `Used: ${creditsInfo.used} · Remaining: ${creditsInfo.remaining}`}
                   </div>
                 </div>
 
@@ -1935,7 +2305,7 @@ export default function App() {
 
           {/* Main Content */}
           <div className="flex-1 flex flex-col min-w-0 relative z-10">
-            {/* Clean Single-Line Top Header (Mobile + Desktop Optimized) */}
+            {/* Top Header */}
             <header className="sticky top-0 z-30 bg-[#07070f]/85 backdrop-blur-xl border-b border-white/10 px-3.5 lg:px-8 py-3 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2.5 min-w-0">
                 <button
@@ -1953,18 +2323,33 @@ export default function App() {
                 {/* Live Credits Pill */}
                 <button
                   onClick={() => setActiveTab("plans")}
-                  title={`Used: ${creditsInfo.used} / Total: ${creditsInfo.total} credits`}
+                  title={
+                    creditsInfo.isUnlimited
+                      ? "Unlimited Video Credits Active"
+                      : `Used: ${creditsInfo.used} / Total: ${creditsInfo.total} credits`
+                  }
                   className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-[11px] sm:text-xs font-bold border transition whitespace-nowrap ${
-                    creditsInfo.isExhausted
+                    creditsInfo.isUnlimited
+                      ? "bg-emerald-500/15 border-emerald-400/40 text-emerald-200"
+                      : creditsInfo.isExhausted
                       ? "bg-rose-500/15 border-rose-500/40 text-rose-300"
                       : creditsInfo.isLow
                       ? "bg-amber-500/15 border-amber-400/40 text-amber-200"
                       : "bg-cyan-500/10 border-cyan-400/30 text-cyan-200 hover:bg-cyan-500/20"
                   }`}
                 >
-                  <Zap className="w-3.5 h-3.5 shrink-0" />
-                  <span>{creditsInfo.remaining}</span>
-                  <span className="hidden sm:inline">/ {creditsInfo.total} Credits</span>
+                  {creditsInfo.isUnlimited ? (
+                    <>
+                      <InfinityIcon className="w-3.5 h-3.5 shrink-0" />
+                      <span className="hidden sm:inline">Unlimited</span>
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-3.5 h-3.5 shrink-0" />
+                      <span>{creditsInfo.remaining}</span>
+                      <span className="hidden sm:inline">/ {creditsInfo.total} Credits</span>
+                    </>
+                  )}
                 </button>
 
                 {/* Active Plan Badge */}
@@ -2041,7 +2426,6 @@ export default function App() {
               {/* ================= HOME DASHBOARD ================= */}
               {activeTab === "dashboard" && (
                 <div className="space-y-6">
-                  {/* Hero Banner */}
                   <div className="p-6 rounded-3xl bg-gradient-to-br from-violet-900/35 via-[#101024] to-cyan-900/25 border border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-6 shadow-xl shadow-violet-950/20">
                     <div className="space-y-2.5 max-w-2xl">
                       <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-violet-500/20 border border-violet-400/30 text-violet-200 text-xs font-semibold">
@@ -2069,27 +2453,39 @@ export default function App() {
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div className="flex items-center gap-3">
                         <div className="w-11 h-11 rounded-2xl bg-cyan-500/15 border border-cyan-400/30 flex items-center justify-center shrink-0">
-                          <Zap className="w-5 h-5 text-cyan-300" />
+                          {creditsInfo.isUnlimited ? (
+                            <InfinityIcon className="w-5 h-5 text-emerald-300" />
+                          ) : (
+                            <Zap className="w-5 h-5 text-cyan-300" />
+                          )}
                         </div>
                         <div>
                           <div className="text-xs text-slate-400 font-medium">
                             Your Monthly Video Credits ({effectivePlan.planId.toUpperCase()} Plan)
                           </div>
                           <div className="text-lg sm:text-xl font-extrabold text-white mt-0.5 flex items-baseline gap-2 flex-wrap">
-                            <span
-                              className={
-                                creditsInfo.isExhausted
-                                  ? "text-rose-400"
-                                  : creditsInfo.isLow
-                                  ? "text-amber-300"
-                                  : "text-cyan-300"
-                              }
-                            >
-                              {creditsInfo.remaining} Credits Remaining
-                            </span>
-                            <span className="text-xs font-normal text-slate-400">
-                              ({creditsInfo.used} used out of {creditsInfo.total})
-                            </span>
+                            {creditsInfo.isUnlimited ? (
+                              <span className="text-emerald-300">
+                                Unlimited Video Credits Active
+                              </span>
+                            ) : (
+                              <>
+                                <span
+                                  className={
+                                    creditsInfo.isExhausted
+                                      ? "text-rose-400"
+                                      : creditsInfo.isLow
+                                      ? "text-amber-300"
+                                      : "text-cyan-300"
+                                  }
+                                >
+                                  {creditsInfo.remaining} Credits Remaining
+                                </span>
+                                <span className="text-xs font-normal text-slate-400">
+                                  ({creditsInfo.used} used out of {creditsInfo.total})
+                                </span>
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -2100,17 +2496,22 @@ export default function App() {
                           className="px-4 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-cyan-500 text-xs font-bold text-white flex items-center gap-1.5 hover:opacity-95 shadow-md shadow-violet-600/20"
                         >
                           <Crown className="w-3.5 h-3.5" />
-                          {effectivePlan.isPaid ? "Add / Upgrade Credits" : "Get More Credits"}
+                          {creditsInfo.isUnlimited
+                            ? "Manage Unlimited Plan"
+                            : effectivePlan.isPaid
+                            ? "Upgrade to Unlimited"
+                            : "Get More Credits"}
                         </button>
                       </div>
                     </div>
 
-                    {/* Visual Credit Progress Bar */}
                     <div className="space-y-1.5">
                       <div className="h-2.5 rounded-full bg-white/10 overflow-hidden">
                         <div
                           className={`h-full rounded-full transition-all duration-500 ${
-                            creditsInfo.isExhausted
+                            creditsInfo.isUnlimited
+                              ? "bg-gradient-to-r from-emerald-400 via-cyan-400 to-violet-500"
+                              : creditsInfo.isExhausted
                               ? "bg-rose-500"
                               : creditsInfo.isLow
                               ? "bg-amber-400"
@@ -2120,9 +2521,15 @@ export default function App() {
                         />
                       </div>
                       <div className="flex items-center justify-between text-[11px] text-slate-400">
-                        <span>Used: {creditsInfo.used} credits ({creditsInfo.usedPercent}%)</span>
                         <span>
-                          {creditsInfo.isExhausted
+                          {creditsInfo.isUnlimited
+                            ? `Videos created this cycle: ${creditsInfo.used}`
+                            : `Used: ${creditsInfo.used} credits (${creditsInfo.usedPercent}%)`}
+                        </span>
+                        <span>
+                          {creditsInfo.isUnlimited
+                            ? "No monthly cap — create unlimited videos!"
+                            : creditsInfo.isExhausted
                             ? "Limit reached — upgrade plan to continue"
                             : `Available: ${creditsInfo.remaining} credits (${creditsInfo.remainingPercent}%)`}
                         </span>
@@ -2308,22 +2715,40 @@ export default function App() {
                     {/* Compact Credit Status Strip */}
                     <div
                       className={`p-3.5 rounded-2xl border flex flex-wrap items-center justify-between gap-2 text-xs ${
-                        creditsInfo.isExhausted
-                          ? "bg-rose-500/10 border-rose-500/40 text-rose-200"
+                        creditsInfo.isUnlimited
+                          ? "bg-emerald-500/10 border-emerald-400/30 text-emerald-100"
+                          : creditsInfo.isExhausted
+                          ? "bg-rose-500/15 border-rose-500/40 text-rose-200"
                           : "bg-cyan-500/10 border-cyan-400/30 text-cyan-100"
                       }`}
                     >
                       <div className="flex items-center gap-2">
-                        <Zap className="w-4 h-4 text-cyan-300 shrink-0" />
+                        {creditsInfo.isUnlimited ? (
+                          <InfinityIcon className="w-4 h-4 text-emerald-300 shrink-0" />
+                        ) : (
+                          <Zap className="w-4 h-4 text-cyan-300 shrink-0" />
+                        )}
                         <span>
-                          <strong>{creditsInfo.remaining}</strong> of <strong>{creditsInfo.total}</strong>{" "}
-                          credits available ({creditsInfo.used} used) · 1 video upload = 1 credit
+                          {creditsInfo.isUnlimited ? (
+                            <>
+                              <strong>Unlimited Plan Active</strong> — Jitni chahein utni videos banayein!
+                            </>
+                          ) : creditsInfo.isExhausted ? (
+                            <>
+                              <strong>0 Credits Remaining!</strong> Video banane ke liye plan upgrade karein.
+                            </>
+                          ) : (
+                            <>
+                              <strong>{creditsInfo.remaining}</strong> of <strong>{creditsInfo.total}</strong>{" "}
+                              credits available ({creditsInfo.used} used) · 1 video upload = 1 credit
+                            </>
+                          )}
                         </span>
                       </div>
-                      {(creditsInfo.isLow || creditsInfo.isExhausted) && (
+                      {!creditsInfo.isUnlimited && (creditsInfo.isLow || creditsInfo.isExhausted) && (
                         <button
                           onClick={() => setActiveTab("plans")}
-                          className="px-3 py-1 rounded-lg bg-gradient-to-r from-violet-600 to-cyan-500 text-white font-bold text-[11px]"
+                          className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-violet-600 to-cyan-500 text-white font-bold text-[11px]"
                         >
                           Upgrade Plan
                         </button>
@@ -2600,23 +3025,35 @@ export default function App() {
                         </div>
                       )}
 
-                      <button
-                        disabled={submitting}
-                        onClick={handleStartProcessing}
-                        className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-violet-600 to-cyan-500 font-bold text-sm shadow-lg shadow-violet-600/30 hover:opacity-95 disabled:opacity-50 flex items-center justify-center gap-2"
-                      >
-                        {submitting ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            Uploading Video ({uploadPercent}%)...
-                          </>
-                        ) : (
-                          <>
-                            <Scissors className="w-4 h-4" />
-                            Analyze & Generate Short MP4 Clips
-                          </>
-                        )}
-                      </button>
+                      {!creditsInfo.isUnlimited && creditsInfo.isExhausted ? (
+                        <button
+                          onClick={() => setActiveTab("plans")}
+                          className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-rose-500 font-bold text-sm text-white shadow-lg flex items-center justify-center gap-2"
+                        >
+                          <Lock className="w-4 h-4" />
+                          0 Credits Left — Upgrade Plan to Create Videos
+                        </button>
+                      ) : (
+                        <button
+                          disabled={submitting}
+                          onClick={handleStartProcessing}
+                          className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-violet-600 to-cyan-500 font-bold text-sm shadow-lg shadow-violet-600/30 hover:opacity-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                          {submitting ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Uploading Video ({uploadPercent}%)...
+                            </>
+                          ) : (
+                            <>
+                              <Scissors className="w-4 h-4" />
+                              {creditsInfo.isUnlimited
+                                ? "Analyze & Generate Short MP4 Clips"
+                                : "Analyze & Generate Short MP4 Clips (Uses 1 Credit)"}
+                            </>
+                          )}
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -3167,10 +3604,9 @@ export default function App() {
                 </div>
               )}
 
-              {/* ================= PLANS & PRICING (RAZORPAY CHECKOUT) ================= */}
+              {/* ================= PLANS & PRICING (INCLUDING UNLIMITED PLAN) ================= */}
               {activeTab === "plans" && (
                 <div className="space-y-6">
-                  {/* Active Subscription & Credits Banner */}
                   <div className="p-5 rounded-2xl bg-gradient-to-r from-violet-900/30 via-[#101024] to-cyan-900/20 border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
                       <div className="text-xs text-slate-400">Account Subscription & Credits</div>
@@ -3188,8 +3624,9 @@ export default function App() {
                         )}
                       </div>
                       <div className="text-xs text-cyan-300 mt-1 font-medium">
-                        Credits: {creditsInfo.remaining} remaining · {creditsInfo.used} used (Total{" "}
-                        {creditsInfo.total} / month)
+                        {creditsInfo.isUnlimited
+                          ? `Unlimited Credits Active (${creditsInfo.used} videos created this cycle)`
+                          : `Credits: ${creditsInfo.remaining} remaining · ${creditsInfo.used} used (Total ${creditsInfo.total})`}
                       </div>
                       {effectivePlan.isPaid && (
                         <div className="text-xs text-slate-400 mt-0.5">
@@ -3215,10 +3652,11 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
                     {plansConfig.map((plan) => {
                       const isCurrent = effectivePlan.planId === plan.id;
                       const isPopular = plan.id === "pro";
+                      const isUnlimited = isUnlimitedPlan(plan.id, plan.video_limit);
                       const priceLabel =
                         currency === "INR"
                           ? `₹${Number(plan.price_inr || 0).toLocaleString("en-IN")}`
@@ -3230,7 +3668,9 @@ export default function App() {
                         <div
                           key={plan.id}
                           className={`p-6 rounded-2xl border flex flex-col justify-between gap-5 relative ${
-                            isPopular
+                            isUnlimited
+                              ? "bg-gradient-to-b from-emerald-900/25 via-cyan-950/20 to-white/[0.04] border-emerald-400/50 shadow-xl shadow-emerald-600/10"
+                              : isPopular
                               ? "bg-gradient-to-b from-violet-900/25 to-white/[0.04] border-violet-400/50 shadow-xl shadow-violet-600/10"
                               : "bg-white/[0.04] border-white/10"
                           }`}
@@ -3240,21 +3680,48 @@ export default function App() {
                               Most Popular
                             </div>
                           )}
+                          {isUnlimited && (
+                            <div className="absolute -top-3 right-5 px-3 py-0.5 rounded-full bg-gradient-to-r from-emerald-500 to-cyan-500 text-[11px] font-bold text-black">
+                              Unlimited ∞
+                            </div>
+                          )}
 
                           <div>
-                            <div className="text-sm font-bold text-violet-300">{plan.name}</div>
+                            <div
+                              className={`text-sm font-bold ${
+                                isUnlimited ? "text-emerald-300" : "text-violet-300"
+                              }`}
+                            >
+                              {plan.name}
+                            </div>
                             <div className="mt-2 flex items-baseline gap-1.5">
                               <span className="text-3xl font-extrabold">{priceLabel}</span>
                               <span className="text-xs text-slate-400">/ {durationDays} days</span>
                             </div>
-                            <div className="text-xs text-cyan-300 mt-1 font-semibold flex items-center gap-1">
-                              <Zap className="w-3.5 h-3.5" /> {plan.video_limit} Video Credits / month
+                            <div
+                              className={`text-xs mt-1 font-semibold flex items-center gap-1 ${
+                                isUnlimited ? "text-emerald-300" : "text-cyan-300"
+                              }`}
+                            >
+                              {isUnlimited ? (
+                                <>
+                                  <InfinityIcon className="w-3.5 h-3.5" /> Unlimited Videos / month
+                                </>
+                              ) : (
+                                <>
+                                  <Zap className="w-3.5 h-3.5" /> {plan.video_limit} Video Credits / month
+                                </>
+                              )}
                             </div>
 
                             <ul className="mt-4 space-y-2 text-xs text-slate-300">
                               {features.map((f, idx) => (
                                 <li key={idx} className="flex items-start gap-2">
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400 shrink-0 mt-0.5" />
+                                  <CheckCircle2
+                                    className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${
+                                      isUnlimited ? "text-emerald-400" : "text-cyan-400"
+                                    }`}
+                                  />
                                   <span>{f}</span>
                                 </li>
                               ))}
@@ -3267,6 +3734,8 @@ export default function App() {
                             className={`w-full py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 ${
                               isCurrent && plan.id !== "free"
                                 ? "bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 hover:bg-emerald-500/30"
+                                : isUnlimited
+                                ? "bg-gradient-to-r from-emerald-500 to-cyan-500 text-black hover:opacity-95"
                                 : isPopular
                                 ? "bg-gradient-to-r from-violet-600 to-cyan-500 text-white hover:opacity-95"
                                 : "bg-white/10 hover:bg-white/15 text-white"
@@ -3304,30 +3773,84 @@ export default function App() {
                 </div>
               )}
 
-              {/* ================= EXCLUSIVE ADMIN CONTROL PANEL ================= */}
+              {/* ================= LIVE ADMIN CONTROL PANEL ================= */}
               {activeTab === "admin_panel" && isAdmin && (
                 <div className="space-y-6">
-                  {/* Admin KPI Summary */}
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  {/* Live Sync Indicator */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+                    <div className="flex items-center gap-2">
+                      <span className="relative flex h-2.5 w-2.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                      </span>
+                      <span className="text-emerald-300 font-semibold">Live Admin Sync Active</span>
+                      {adminLastSynced && <span>· Last synced {adminLastSynced}</span>}
+                    </div>
+                    <button
+                      onClick={() => {
+                        fetchAdminUsers(false);
+                        checkBackendHealth(apiBaseUrl, false);
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-white flex items-center gap-1.5"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${loadingAdminUsers ? "animate-spin" : ""}`} />
+                      Sync Now
+                    </button>
+                  </div>
+
+                  {/* 5 Live Admin KPI Cards */}
+                  <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5">
                     {[
-                      { label: "Total Registered Users", value: adminStats.total, icon: Users, color: "text-cyan-400" },
-                      { label: "Active Paid Users", value: adminStats.paid, icon: Crown, color: "text-amber-400" },
-                      { label: "Active Queue Jobs", value: `${health.active_jobs}/${health.max_active_jobs}`, icon: Activity, color: "text-violet-400" },
+                      {
+                        label: "Total Registered Users",
+                        value: adminStats.total,
+                        icon: Users,
+                        color: "text-cyan-400",
+                      },
+                      {
+                        label: "Live Online Right Now",
+                        value: adminStats.liveOnline,
+                        icon: Radio,
+                        color: "text-emerald-400",
+                        pulse: true,
+                      },
+                      {
+                        label: "Active Paid Users",
+                        value: adminStats.paid,
+                        icon: Crown,
+                        color: "text-amber-400",
+                      },
+                      {
+                        label: "Active Queue Jobs",
+                        value: `${health.active_jobs}/${health.max_active_jobs}`,
+                        icon: Activity,
+                        color: "text-violet-400",
+                      },
                       {
                         label: "FFmpeg Server",
                         value: health.online && health.ffmpeg_available ? "Online" : "Offline",
                         icon: Server,
-                        color: health.online && health.ffmpeg_available ? "text-emerald-400" : "text-rose-400",
+                        color:
+                          health.online && health.ffmpeg_available
+                            ? "text-emerald-400"
+                            : "text-rose-400",
                       },
                     ].map((stat) => {
                       const Icon = stat.icon;
                       return (
-                        <div key={stat.label} className="p-4 rounded-2xl bg-amber-500/[0.06] border border-amber-400/20">
+                        <div
+                          key={stat.label}
+                          className="p-4 rounded-2xl bg-amber-500/[0.06] border border-amber-400/20"
+                        >
                           <div className="flex items-center justify-between text-xs text-slate-400">
                             <span>{stat.label}</span>
-                            <Icon className={`w-4 h-4 ${stat.color}`} />
+                            <Icon
+                              className={`w-4 h-4 ${stat.color} ${
+                                stat.pulse ? "animate-pulse" : ""
+                              }`}
+                            />
                           </div>
-                          <div className="text-xl font-bold mt-1.5">{stat.value}</div>
+                          <div className="text-xl font-extrabold mt-1.5">{stat.value}</div>
                         </div>
                       );
                     })}
@@ -3336,8 +3859,8 @@ export default function App() {
                   {/* Admin Sub-Tabs */}
                   <div className="flex flex-wrap gap-2">
                     {[
-                      { id: "pricing", label: "Live Price & Credit Editor", icon: CreditCard },
-                      { id: "users", label: "Users & Credits", icon: Users },
+                      { id: "users", label: `Users, Credits & Ban (${adminStats.total})`, icon: Users },
+                      { id: "pricing", label: "Live Price & Plan Editor", icon: CreditCard },
                       { id: "monitor", label: "System Monitor", icon: Shield },
                       { id: "settings", label: "Backend Settings", icon: Settings },
                     ].map((t) => {
@@ -3359,7 +3882,286 @@ export default function App() {
                     })}
                   </div>
 
-                  {/* Sub-tab 1: Live Price & Plan Editor */}
+                  {/* Sub-tab 1: Users, Credits (+/-) & Ban Control */}
+                  {adminSubTab === "users" && (
+                    <div className="p-5 sm:p-6 rounded-2xl bg-white/[0.04] border border-white/10 space-y-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="relative flex-1 max-w-md">
+                          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                          <input
+                            type="text"
+                            value={adminUserSearch}
+                            onChange={(e) => setAdminUserSearch(e.target.value)}
+                            placeholder="Search user by email, plan, or blocked..."
+                            className="w-full pl-9 pr-3 py-2 rounded-xl bg-black/40 border border-white/10 text-xs"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-slate-400">
+                          {adminStats.blocked > 0 && (
+                            <span className="px-2.5 py-1 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-300 font-semibold">
+                              {adminStats.blocked} Blocked
+                            </span>
+                          )}
+                          <button
+                            onClick={() => fetchAdminUsers(false)}
+                            className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-white flex items-center gap-1.5"
+                          >
+                            <RefreshCw
+                              className={`w-3.5 h-3.5 ${loadingAdminUsers ? "animate-spin" : ""}`}
+                            />
+                            Refresh
+                          </button>
+                        </div>
+                      </div>
+
+                      {filteredAdminUsers.length === 0 ? (
+                        <div className="text-center py-8 text-xs text-slate-400 space-y-1">
+                          <div>No users visible yet.</div>
+                          <div className="text-[11px] text-amber-300/80">
+                            Make sure you ran the Supabase SQL setup query so existing users sync into{" "}
+                            <code>user_plans</code>.
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="border-b border-white/10 text-slate-400">
+                                <th className="py-2.5 pr-4">User Email & Status</th>
+                                <th className="py-2.5 pr-4">Plan & Validity</th>
+                                <th className="py-2.5 pr-4">Credits Left (Adjust ±)</th>
+                                <th className="py-2.5 text-right">Plan & Ban Controls</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-white/5">
+                              {filteredAdminUsers.map((u) => {
+                                const dLeft = getPlanDaysLeft(u.valid_until);
+                                const busy = updatingUserId === u.user_id;
+                                const isBlockedRow = Boolean(u.is_blocked || u.status === "blocked");
+                                const isOnlineNow =
+                                  onlineUserIds.includes(u.user_id) ||
+                                  isRecentlyActive(u.last_seen_at);
+                                const isSelfAdmin =
+                                  (u.email || "").toLowerCase() === ADMIN_EMAIL;
+
+                                const baseLimit = getPlanLimitById(u.plan_id);
+                                const isUnlim = isUnlimitedPlan(u.plan_id, baseLimit);
+                                const used = Number(u.videos_used) || 0;
+                                const bonus = Number(u.bonus_credits) || 0;
+                                const effectiveTotal = isUnlim
+                                  ? Infinity
+                                  : Math.max(0, baseLimit + bonus);
+                                const remaining = isUnlim
+                                  ? Infinity
+                                  : Math.max(0, effectiveTotal - used);
+
+                                const customVal = customCreditInputs[u.user_id] ?? "";
+
+                                return (
+                                  <tr
+                                    key={u.user_id}
+                                    className={isBlockedRow ? "bg-rose-950/20" : ""}
+                                  >
+                                    {/* Email + Online/Blocked Status */}
+                                    <td className="py-3.5 pr-4">
+                                      <div className="flex items-center gap-2">
+                                        <span
+                                          title={isOnlineNow ? "Online now" : "Offline"}
+                                          className={`w-2 h-2 rounded-full shrink-0 ${
+                                            isOnlineNow ? "bg-emerald-400 animate-pulse" : "bg-slate-600"
+                                          }`}
+                                        />
+                                        <span className="font-semibold text-white">
+                                          {u.email || u.user_id}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-1.5 mt-1 pl-4">
+                                        {isBlockedRow ? (
+                                          <span className="px-2 py-0.5 rounded bg-rose-500/20 border border-rose-500/40 text-rose-300 text-[10px] font-bold">
+                                            BLOCKED
+                                          </span>
+                                        ) : (
+                                          <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 text-[10px] font-semibold">
+                                            Active
+                                          </span>
+                                        )}
+                                        {isOnlineNow && (
+                                          <span className="text-[10px] text-emerald-400 font-medium">
+                                            · Live Now
+                                          </span>
+                                        )}
+                                      </div>
+                                    </td>
+
+                                    {/* Plan + Days Left */}
+                                    <td className="py-3.5 pr-4">
+                                      <div className="uppercase font-bold text-cyan-300">
+                                        {u.plan_id}
+                                      </div>
+                                      <div className="text-[11px] text-slate-400 mt-0.5">
+                                        {u.plan_id !== "free" && dLeft > 0 ? (
+                                          <span className="text-emerald-300">
+                                            {dLeft}d left ({formatDateShort(u.valid_until)})
+                                          </span>
+                                        ) : (
+                                          <span>Free Tier</span>
+                                        )}
+                                      </div>
+                                    </td>
+
+                                    {/* Credits Left + Direct +/- Adjustment */}
+                                    <td className="py-3.5 pr-4">
+                                      {isUnlim ? (
+                                        <div className="inline-flex items-center gap-1 text-emerald-300 font-bold">
+                                          <InfinityIcon className="w-4 h-4" /> Unlimited ({used} used)
+                                        </div>
+                                      ) : (
+                                        <div className="space-y-1.5">
+                                          <div className="flex items-center gap-2">
+                                            <span
+                                              className={`font-bold ${
+                                                remaining === 0
+                                                  ? "text-rose-400"
+                                                  : "text-cyan-200"
+                                              }`}
+                                            >
+                                              {remaining} left
+                                            </span>
+                                            <span className="text-[11px] text-slate-400 font-mono">
+                                              (Used: {used} / Total: {effectiveTotal})
+                                            </span>
+                                          </div>
+                                          <div className="flex flex-wrap items-center gap-1">
+                                            <button
+                                              disabled={busy || remaining <= 0}
+                                              onClick={() => handleAdminAdjustCredits(u, -1)}
+                                              className="px-2 py-1 rounded bg-rose-500/20 hover:bg-rose-500/35 border border-rose-500/30 text-rose-200 font-bold disabled:opacity-40"
+                                              title="Decrease 1 credit"
+                                            >
+                                              -1
+                                            </button>
+                                            <button
+                                              disabled={busy}
+                                              onClick={() => handleAdminAdjustCredits(u, 1)}
+                                              className="px-2 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-500/30 text-emerald-200 font-bold disabled:opacity-40"
+                                              title="Add 1 credit"
+                                            >
+                                              +1
+                                            </button>
+                                            <button
+                                              disabled={busy}
+                                              onClick={() => handleAdminAdjustCredits(u, 5)}
+                                              className="px-2 py-1 rounded bg-cyan-500/20 hover:bg-cyan-500/35 border border-cyan-500/30 text-cyan-200 font-bold disabled:opacity-40"
+                                              title="Add 5 credits"
+                                            >
+                                              +5
+                                            </button>
+                                            <input
+                                              type="number"
+                                              value={customVal}
+                                              onChange={(e) =>
+                                                setCustomCreditInputs((prev) => ({
+                                                  ...prev,
+                                                  [u.user_id]: e.target.value,
+                                                }))
+                                              }
+                                              placeholder="±10"
+                                              className="w-14 px-1.5 py-1 rounded bg-black/50 border border-white/15 text-[11px] text-center"
+                                            />
+                                            <button
+                                              disabled={busy || !Number(customVal)}
+                                              onClick={() => {
+                                                const n = Number(customVal);
+                                                if (!Number.isNaN(n) && n !== 0) {
+                                                  handleAdminAdjustCredits(u, n);
+                                                  setCustomCreditInputs((prev) => ({
+                                                    ...prev,
+                                                    [u.user_id]: "",
+                                                  }));
+                                                }
+                                              }}
+                                              className="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-[11px] font-semibold disabled:opacity-40"
+                                            >
+                                              Apply
+                                            </button>
+                                            <button
+                                              disabled={busy}
+                                              onClick={() => handleAdminResetCredits(u)}
+                                              className="px-2 py-1 rounded bg-white/5 hover:bg-white/15 text-slate-300 text-[10px]"
+                                              title="Reset used credits to 0"
+                                            >
+                                              Reset
+                                            </button>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </td>
+
+                                    {/* Plan Upgrade + Block/Unblock */}
+                                    <td className="py-3.5 text-right">
+                                      <div className="inline-flex flex-wrap justify-end gap-1.5">
+                                        <button
+                                          disabled={busy}
+                                          onClick={() => handleAdminUpdateUserPlan(u, "pro", 30)}
+                                          className="px-2 py-1 rounded-lg bg-violet-600/30 hover:bg-violet-600/50 border border-violet-400/40 text-violet-200 font-semibold"
+                                        >
+                                          +30d Pro
+                                        </button>
+                                        <button
+                                          disabled={busy}
+                                          onClick={() => handleAdminUpdateUserPlan(u, "premium", 30)}
+                                          className="px-2 py-1 rounded-lg bg-amber-500/25 hover:bg-amber-500/40 border border-amber-400/40 text-amber-200 font-semibold"
+                                        >
+                                          +30d Prem
+                                        </button>
+                                        <button
+                                          disabled={busy}
+                                          onClick={() => handleAdminUpdateUserPlan(u, "unlimited", 30)}
+                                          className="px-2 py-1 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/40 text-emerald-200 font-semibold"
+                                        >
+                                          +30d Unlim
+                                        </button>
+                                        <button
+                                          disabled={busy}
+                                          onClick={() => handleAdminUpdateUserPlan(u, "free", 0)}
+                                          className="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/15 text-slate-300"
+                                        >
+                                          Free
+                                        </button>
+                                        {!isSelfAdmin && (
+                                          <button
+                                            disabled={busy}
+                                            onClick={() => handleAdminToggleBlockUser(u)}
+                                            className={`px-2.5 py-1 rounded-lg font-bold flex items-center gap-1 border ${
+                                              isBlockedRow
+                                                ? "bg-emerald-500/20 hover:bg-emerald-500/35 border-emerald-400/40 text-emerald-200"
+                                                : "bg-rose-600/30 hover:bg-rose-600/50 border-rose-500/40 text-rose-200"
+                                            }`}
+                                          >
+                                            {isBlockedRow ? (
+                                              <>
+                                                <ShieldCheck className="w-3 h-3" /> Unblock
+                                              </>
+                                            ) : (
+                                              <>
+                                                <Ban className="w-3 h-3" /> Block
+                                              </>
+                                            )}
+                                          </button>
+                                        )}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Sub-tab 2: Live Price & Plan Editor (4 Plans incl. Unlimited) */}
                   {adminSubTab === "pricing" && (
                     <div className="p-6 rounded-2xl bg-white/[0.04] border border-white/10 space-y-5">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -3383,189 +4185,117 @@ export default function App() {
                         </button>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        {adminPlanDrafts.map((draft, idx) => (
-                          <div
-                            key={draft.id}
-                            className="p-4 rounded-xl bg-black/35 border border-white/10 space-y-3"
-                          >
-                            <div className="flex items-center justify-between">
-                              <span className="font-bold text-sm text-amber-300 uppercase">
-                                {draft.name} ({draft.id})
-                              </span>
-                            </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                        {adminPlanDrafts.map((draft, idx) => {
+                          const isUnlim = draft.id === "unlimited";
+                          return (
+                            <div
+                              key={draft.id}
+                              className={`p-4 rounded-xl bg-black/35 border space-y-3 ${
+                                isUnlim ? "border-emerald-400/40" : "border-white/10"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span
+                                  className={`font-bold text-sm uppercase ${
+                                    isUnlim ? "text-emerald-300" : "text-amber-300"
+                                  }`}
+                                >
+                                  {draft.name} ({draft.id})
+                                </span>
+                              </div>
 
-                            <div className="grid grid-cols-2 gap-2.5">
-                              <div>
-                                <label className="text-[11px] text-slate-400 block mb-1">Price (INR ₹)</label>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={draft.price_inr}
-                                  onChange={(e) => {
-                                    const val = Number(e.target.value);
-                                    setAdminPlanDrafts((prev) =>
-                                      prev.map((p, i) => (i === idx ? { ...p, price_inr: val } : p))
-                                    );
-                                  }}
-                                  className="w-full px-3 py-1.5 rounded-lg bg-black/50 border border-white/10 text-sm"
-                                />
+                              <div className="grid grid-cols-2 gap-2.5">
+                                <div>
+                                  <label className="text-[11px] text-slate-400 block mb-1">
+                                    Price (INR ₹)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={draft.price_inr}
+                                    onChange={(e) => {
+                                      const val = Number(e.target.value);
+                                      setAdminPlanDrafts((prev) =>
+                                        prev.map((p, i) =>
+                                          i === idx ? { ...p, price_inr: val } : p
+                                        )
+                                      );
+                                    }}
+                                    className="w-full px-3 py-1.5 rounded-lg bg-black/50 border border-white/10 text-sm"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[11px] text-slate-400 block mb-1">
+                                    Price (USD $)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={draft.price_usd}
+                                    onChange={(e) => {
+                                      const val = Number(e.target.value);
+                                      setAdminPlanDrafts((prev) =>
+                                        prev.map((p, i) =>
+                                          i === idx ? { ...p, price_usd: val } : p
+                                        )
+                                      );
+                                    }}
+                                    className="w-full px-3 py-1.5 rounded-lg bg-black/50 border border-white/10 text-sm"
+                                  />
+                                </div>
                               </div>
-                              <div>
-                                <label className="text-[11px] text-slate-400 block mb-1">Price (USD $)</label>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={draft.price_usd}
-                                  onChange={(e) => {
-                                    const val = Number(e.target.value);
-                                    setAdminPlanDrafts((prev) =>
-                                      prev.map((p, i) => (i === idx ? { ...p, price_usd: val } : p))
-                                    );
-                                  }}
-                                  className="w-full px-3 py-1.5 rounded-lg bg-black/50 border border-white/10 text-sm"
-                                />
-                              </div>
-                            </div>
 
-                            <div className="grid grid-cols-2 gap-2.5">
-                              <div>
-                                <label className="text-[11px] text-slate-400 block mb-1">Credits / Month</label>
-                                <input
-                                  type="number"
-                                  min={1}
-                                  value={draft.video_limit}
-                                  onChange={(e) => {
-                                    const val = Number(e.target.value);
-                                    setAdminPlanDrafts((prev) =>
-                                      prev.map((p, i) => (i === idx ? { ...p, video_limit: val } : p))
-                                    );
-                                  }}
-                                  className="w-full px-3 py-1.5 rounded-lg bg-black/50 border border-white/10 text-sm"
-                                />
-                              </div>
-                              <div>
-                                <label className="text-[11px] text-slate-400 block mb-1">Validity (Days)</label>
-                                <input
-                                  type="number"
-                                  min={1}
-                                  value={draft.duration_days || 30}
-                                  onChange={(e) => {
-                                    const val = Number(e.target.value);
-                                    setAdminPlanDrafts((prev) =>
-                                      prev.map((p, i) => (i === idx ? { ...p, duration_days: val } : p))
-                                    );
-                                  }}
-                                  className="w-full px-3 py-1.5 rounded-lg bg-black/50 border border-white/10 text-sm"
-                                />
+                              <div className="grid grid-cols-2 gap-2.5">
+                                <div>
+                                  <label className="text-[11px] text-slate-400 block mb-1">
+                                    Credits / Month
+                                  </label>
+                                  {isUnlim ? (
+                                    <div className="px-3 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-400/30 text-emerald-300 text-xs font-bold flex items-center gap-1 h-[34px]">
+                                      <InfinityIcon className="w-3.5 h-3.5" /> Unlimited
+                                    </div>
+                                  ) : (
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      value={draft.video_limit}
+                                      onChange={(e) => {
+                                        const val = Number(e.target.value);
+                                        setAdminPlanDrafts((prev) =>
+                                          prev.map((p, i) =>
+                                            i === idx ? { ...p, video_limit: val } : p
+                                          )
+                                        );
+                                      }}
+                                      className="w-full px-3 py-1.5 rounded-lg bg-black/50 border border-white/10 text-sm"
+                                    />
+                                  )}
+                                </div>
+                                <div>
+                                  <label className="text-[11px] text-slate-400 block mb-1">
+                                    Validity (Days)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    value={draft.duration_days || 30}
+                                    onChange={(e) => {
+                                      const val = Number(e.target.value);
+                                      setAdminPlanDrafts((prev) =>
+                                        prev.map((p, i) =>
+                                          i === idx ? { ...p, duration_days: val } : p
+                                        )
+                                      );
+                                    }}
+                                    className="w-full px-3 py-1.5 rounded-lg bg-black/50 border border-white/10 text-sm"
+                                  />
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
-                    </div>
-                  )}
-
-                  {/* Sub-tab 2: User & Plan Control */}
-                  {adminSubTab === "users" && (
-                    <div className="p-6 rounded-2xl bg-white/[0.04] border border-white/10 space-y-4">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div className="relative flex-1 max-w-md">
-                          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                          <input
-                            type="text"
-                            value={adminUserSearch}
-                            onChange={(e) => setAdminUserSearch(e.target.value)}
-                            placeholder="Search user by email or plan..."
-                            className="w-full pl-9 pr-3 py-2 rounded-xl bg-black/40 border border-white/10 text-xs"
-                          />
-                        </div>
-                        <button
-                          onClick={fetchAdminUsers}
-                          className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold flex items-center gap-1.5"
-                        >
-                          <RefreshCw className={`w-3.5 h-3.5 ${loadingAdminUsers ? "animate-spin" : ""}`} />
-                          Refresh Users
-                        </button>
-                      </div>
-
-                      {filteredAdminUsers.length === 0 ? (
-                        <div className="text-center py-8 text-xs text-slate-400">
-                          No users found yet.
-                        </div>
-                      ) : (
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-left text-xs">
-                            <thead>
-                              <tr className="border-b border-white/10 text-slate-400">
-                                <th className="py-2.5 pr-4">User Email</th>
-                                <th className="py-2.5 pr-4">Plan</th>
-                                <th className="py-2.5 pr-4">Credits Used</th>
-                                <th className="py-2.5 pr-4">Days Left</th>
-                                <th className="py-2.5 text-right">Quick Controls</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-white/5">
-                              {filteredAdminUsers.map((u) => {
-                                const dLeft = getPlanDaysLeft(u.valid_until);
-                                const busy = updatingUserId === u.user_id;
-                                const uLimit = getPlanLimitById(u.plan_id);
-                                const uUsed = Number(u.videos_used) || 0;
-                                return (
-                                  <tr key={u.user_id}>
-                                    <td className="py-3 pr-4 font-medium text-white">{u.email}</td>
-                                    <td className="py-3 pr-4 uppercase font-bold text-cyan-300">
-                                      {u.plan_id}
-                                    </td>
-                                    <td className="py-3 pr-4 font-mono text-slate-300">
-                                      {uUsed} / {uLimit}
-                                    </td>
-                                    <td className="py-3 pr-4">
-                                      {u.plan_id !== "free" && dLeft > 0 ? (
-                                        <span className="text-emerald-300 font-semibold">{dLeft} days</span>
-                                      ) : (
-                                        <span className="text-slate-500">—</span>
-                                      )}
-                                    </td>
-                                    <td className="py-3 text-right">
-                                      <div className="inline-flex flex-wrap justify-end gap-1.5">
-                                        <button
-                                          disabled={busy}
-                                          onClick={() => handleAdminUpdateUserPlan(u, "pro", 30)}
-                                          className="px-2.5 py-1 rounded-lg bg-violet-600/30 hover:bg-violet-600/50 border border-violet-400/40 text-violet-200 font-semibold"
-                                        >
-                                          +30d Pro
-                                        </button>
-                                        <button
-                                          disabled={busy}
-                                          onClick={() => handleAdminUpdateUserPlan(u, "premium", 30)}
-                                          className="px-2.5 py-1 rounded-lg bg-amber-500/25 hover:bg-amber-500/40 border border-amber-400/40 text-amber-200 font-semibold"
-                                        >
-                                          +30d Prem
-                                        </button>
-                                        <button
-                                          disabled={busy}
-                                          onClick={() => handleAdminResetCredits(u)}
-                                          className="px-2.5 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/40 text-cyan-200 font-semibold"
-                                        >
-                                          Refill Credits
-                                        </button>
-                                        <button
-                                          disabled={busy}
-                                          onClick={() => handleAdminUpdateUserPlan(u, "free", 0)}
-                                          className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-rose-500/20 text-slate-300 hover:text-rose-200"
-                                        >
-                                          Free
-                                        </button>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
                     </div>
                   )}
 
@@ -3796,7 +4526,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ================= POLICY PAGES MODAL (FOR RAZORPAY & USERS) ================= */}
+      {/* ================= POLICY PAGES MODAL ================= */}
       {policyModal && (
         <div className="fixed inset-0 z-[65] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl bg-[#0e0e1d] border border-white/15 p-6 space-y-4 shadow-2xl">
@@ -3841,7 +4571,7 @@ export default function App() {
                   By using ClipForge AI, you agree to upload and process only videos that you own or have explicit legal authorization to edit and redistribute.
                 </p>
                 <p>
-                  <strong>Subscriptions & Fair Usage:</strong> Paid plans (Pro and Premium) grant access for 30 days from the date of payment confirmation, subject to the monthly video credit limits listed on our Pricing page. Automated abuse, scraping, or uploading illegal/copyright-infringing material may lead to account suspension.
+                  <strong>Subscriptions & Fair Usage:</strong> Paid plans (Pro, Premium, and Unlimited) grant access for 30 days from the date of payment confirmation. Automated abuse, scraping, or uploading illegal/copyright-infringing material may lead to account suspension.
                 </p>
                 <p>
                   <strong>Service Availability:</strong> We strive for high uptime, though occasional server maintenance or queue limits may apply during peak traffic.
