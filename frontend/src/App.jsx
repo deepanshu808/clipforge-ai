@@ -30,7 +30,6 @@ import {
   LogOut,
   Mail,
   Menu,
-  Minus,
   Plus,
   Radio,
   RefreshCw,
@@ -42,14 +41,12 @@ import {
   Server,
   Settings,
   Shield,
-  ShieldAlert,
   ShieldCheck,
   Sliders,
   Sparkles,
   Subtitles,
   Trash2,
   Upload,
-  User,
   Users,
   Video,
   X,
@@ -231,7 +228,7 @@ function formatDateShort(iso) {
 function isRecentlyActive(lastSeenIso) {
   if (!lastSeenIso) return false;
   const diff = Date.now() - new Date(lastSeenIso).getTime();
-  return diff >= 0 && diff < 2 * 60 * 1000; // Active in last 2 minutes
+  return diff >= 0 && diff < 2 * 60 * 1000;
 }
 
 function loadRazorpayScript() {
@@ -359,7 +356,7 @@ export default function App() {
   const [assistantMessages, setAssistantMessages] = useState([
     {
       role: "assistant",
-      text: "Ask me to suggest hooks, Hindi/Hinglish subtitles, clip titles, or FFmpeg cut settings for any of your real uploaded clips.",
+      text: "Ask me to suggest hooks, English/Hindi/Hinglish subtitles, clip titles, or FFmpeg cut settings for any of your uploaded clips.",
     },
   ]);
 
@@ -482,7 +479,7 @@ export default function App() {
     } catch {}
   };
 
-  // Fetch user plan and auto-create row if missing so Admin always sees every user
+  // Fetch user plan and auto-create row if missing
   const fetchUserPlan = async (userObj) => {
     const userId = typeof userObj === "string" ? userObj : userObj?.id;
     const userEmail = typeof userObj === "object" ? userObj?.email : user?.email;
@@ -499,7 +496,6 @@ export default function App() {
 
       if (!error && data) {
         setUserPlan(data);
-        // Update email / last_seen_at silently
         supabase
           .from("user_plans")
           .update({
@@ -511,7 +507,6 @@ export default function App() {
         return;
       }
 
-      // Row missing -> create default Free row so Admin sees user & credits save properly
       const defaultRow = {
         user_id: userId,
         email: (userEmail || "").toLowerCase(),
@@ -543,35 +538,79 @@ export default function App() {
     }
   };
 
-  // Deduct 1 credit atomically in Supabase when video upload/import succeeds
-  const consumeOneCredit = async () => {
-    if (!supabase || !user?.id || creditsInfo.isUnlimited) return;
-    const nextUsed = (Number(userPlan?.videos_used) || 0) + 1;
-    // Optimistic local update immediately
-    setUserPlan((prev) =>
-      prev ? { ...prev, videos_used: nextUsed } : { user_id: user.id, plan_id: "free", status: "active", videos_used: nextUsed, bonus_credits: 0 }
-    );
+  // Reserve & deduct 1 credit atomically via Supabase Postgres RPC
+  const reserveOneCredit = async () => {
+    if (!supabase || !user?.id) {
+      return { ok: false, message: "Your login session has expired. Please sign in again." };
+    }
     try {
-      const { data, error } = await supabase
-        .from("user_plans")
-        .upsert(
-          {
-            user_id: user.id,
-            email: (user.email || "").toLowerCase(),
-            plan_id: userPlan?.plan_id || "free",
-            status: userPlan?.status || "active",
-            videos_used: nextUsed,
-            bonus_credits: Number(userPlan?.bonus_credits) || 0,
-            is_blocked: Boolean(userPlan?.is_blocked),
-            last_seen_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "user_id" }
-        )
-        .select()
-        .maybeSingle();
-      if (!error && data) {
-        setUserPlan(data);
+      const { data, error } = await supabase.rpc("consume_video_credit");
+      if (error) {
+        return {
+          ok: false,
+          message: `Credit verification failed (${error.message}). Please refresh the page and try again.`,
+        };
+      }
+      if (!data?.ok) {
+        if (typeof data?.videos_used === "number") {
+          setUserPlan((prev) => (prev ? { ...prev, videos_used: data.videos_used } : prev));
+        }
+        if (data?.error === "blocked") {
+          setUserPlan((prev) => (prev ? { ...prev, is_blocked: true, status: "blocked" } : prev));
+          return {
+            ok: false,
+            message: "Your account has been suspended. Please contact support for assistance.",
+          };
+        }
+        if (data?.error === "no_credits") {
+          return {
+            ok: false,
+            message:
+              "You have 0 video credits remaining. Please upgrade your plan under Plans & Pricing to continue.",
+          };
+        }
+        if (data?.error === "not_authenticated") {
+          return {
+            ok: false,
+            message: "Please sign in to your account to process videos.",
+          };
+        }
+        return {
+          ok: false,
+          message: "You do not have enough credits to process this video. Please upgrade your plan.",
+        };
+      }
+      setUserPlan((prev) => ({
+        ...(prev || {
+          user_id: user.id,
+          email: (user.email || "").toLowerCase(),
+          plan_id: "free",
+          status: "active",
+          bonus_credits: 0,
+        }),
+        videos_used: Number(data.videos_used) || 0,
+      }));
+      return {
+        ok: true,
+        unlimited: Boolean(data.unlimited),
+        remaining: data.remaining,
+        videos_used: data.videos_used,
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        message: err?.message || "Could not verify credits. Please check your internet connection.",
+      };
+    }
+  };
+
+  // Auto-refund 1 credit if upload/import fails
+  const refundOneCredit = async () => {
+    if (!supabase || !user?.id) return;
+    try {
+      const { data } = await supabase.rpc("refund_video_credit");
+      if (data?.ok && typeof data.videos_used === "number") {
+        setUserPlan((prev) => (prev ? { ...prev, videos_used: data.videos_used } : prev));
       }
     } catch {}
   };
@@ -627,14 +666,13 @@ export default function App() {
     return () => listener?.subscription?.unsubscribe();
   }, []);
 
-  // Realtime Presence (Live Online Users) + Live Ban/Credit Sync for logged-in user
+  // Realtime Presence (Live Online Users) + Live Ban/Credit Sync
   useEffect(() => {
     if (!supabase || !user?.id) {
       setOnlineUserIds([]);
       return;
     }
 
-    // 1. Track live online presence across all active tabs
     const presenceChannel = supabase.channel("clipforge-online-users", {
       config: { presence: { key: user.id } },
     });
@@ -654,7 +692,6 @@ export default function App() {
         }
       });
 
-    // 2. Listen for instant admin changes (block/unblock, credits +/-, plan upgrade)
     const planSyncChannel = supabase
       .channel(`user-plan-live-${user.id}`)
       .on(
@@ -675,7 +712,6 @@ export default function App() {
       )
       .subscribe();
 
-    // 3. Heartbeat every 60s to keep last_seen_at fresh
     const heartbeat = setInterval(() => {
       supabase
         .from("user_plans")
@@ -714,13 +750,13 @@ export default function App() {
     setAuthNotice(null);
 
     if (!supabase) {
-      setAuthError("Supabase keys configured nahi hain. Admin se contact karein.");
+      setAuthError("Authentication service is not configured. Please contact support.");
       return;
     }
 
     const cleanEmail = authEmail.trim().toLowerCase();
     if (!cleanEmail || !cleanEmail.includes("@")) {
-      setAuthError("Kripya ek valid email address daalein.");
+      setAuthError("Please enter a valid email address.");
       return;
     }
 
@@ -733,13 +769,13 @@ export default function App() {
         });
         if (error) throw error;
         setAuthNotice({ type: "reset", email: cleanEmail });
-        showToast("Password reset link aapke Gmail par bhej diya gaya hai!", "success");
+        showToast("Password reset link has been sent to your email.", "success");
       } catch (err) {
         const raw = (err?.message || "").toLowerCase();
         if (raw.includes("rate limit")) {
-          setAuthError("Bahut zyada requests ho gayi hain. Kripya 1-2 minute baad dobara try karein.");
+          setAuthError("Too many requests. Please wait 1–2 minutes and try again.");
         } else {
-          setAuthError(err.message || "Reset link bhejne me dikkat aayi.");
+          setAuthError(err.message || "Could not send password reset link. Please try again.");
         }
       } finally {
         setAuthSubmitting(false);
@@ -748,7 +784,7 @@ export default function App() {
     }
 
     if (authPassword.length < 6) {
-      setAuthError("Password kam se kam 6 characters ka hona chahiye.");
+      setAuthError("Password must be at least 6 characters long.");
       return;
     }
 
@@ -763,13 +799,13 @@ export default function App() {
         });
         if (error) throw error;
         if (data.session) {
-          showToast("Account ban gaya! ClipForge AI me aapka swagat hai.", "success");
+          showToast("Account created! Welcome to ClipForge AI.", "success");
           setAuthPassword("");
         } else {
           setAuthNotice({ type: "confirm", email: cleanEmail });
           setAuthMode("login");
           setAuthPassword("");
-          showToast("Confirmation email bhej diya gaya hai! Apna Gmail check karein.", "info");
+          showToast("Confirmation email sent! Please check your inbox.", "info");
         }
       } else {
         const { error } = await supabase.auth.signInWithPassword({
@@ -777,7 +813,7 @@ export default function App() {
           password: authPassword,
         });
         if (error) throw error;
-        showToast("Login successful! Welcome to ClipForge AI.", "success");
+        showToast("Signed in successfully! Welcome back to ClipForge AI.", "success");
         setAuthPassword("");
         setAuthNotice(null);
       }
@@ -788,18 +824,18 @@ export default function App() {
         setAuthError("");
       } else if (raw.includes("invalid login credentials")) {
         setAuthError(
-          "Email ya password galat hai. Dobara check karein ya neeche 'Password bhool gaye?' par click karke naya password banayein."
+          "Incorrect email or password. Please double-check your details or click 'Forgot password?' below to reset it."
         );
       } else if (raw.includes("already registered")) {
         setAuthError(
-          "Is email se account pehle se bana hua hai. Kripya Login karein ya 'Password bhool gaye?' se reset karein."
+          "An account with this email already exists. Please sign in or use 'Forgot password?' to reset your password."
         );
       } else if (raw.includes("502") || raw.includes("fetch") || raw.includes("network")) {
-        setAuthError("Server abhi connect nahi ho paa raha. Kripya kuch seconds baad dobara try karein.");
+        setAuthError("Unable to reach the server right now. Please try again in a few seconds.");
       } else if (raw.includes("rate limit")) {
-        setAuthError("Email limit temporary full hai. Kripya thodi der baad dobara koshish karein.");
+        setAuthError("Email rate limit reached temporarily. Please wait a few minutes and try again.");
       } else {
-        setAuthError(err.message || "Authentication fail ho gaya. Dobara koshish karein.");
+        setAuthError(err.message || "Authentication failed. Please try again.");
       }
     } finally {
       setAuthSubmitting(false);
@@ -810,7 +846,7 @@ export default function App() {
     if (!supabase || resendCooldown > 0) return;
     const targetEmail = (authNotice?.email || authEmail || "").trim().toLowerCase();
     if (!targetEmail) {
-      setAuthError("Pehle upar apna email address likhein.");
+      setAuthError("Please enter your email address above first.");
       return;
     }
     setResendingEmail(true);
@@ -823,9 +859,9 @@ export default function App() {
       });
       if (error) throw error;
       setResendCooldown(30);
-      showToast(`Naya confirmation email ${targetEmail} par bhej diya gaya hai!`, "success");
+      showToast(`A new confirmation email has been sent to ${targetEmail}.`, "success");
     } catch (err) {
-      showToast(err.message || "Email resend nahi ho paya. Thodi der baad try karein.", "error");
+      showToast(err.message || "Could not resend confirmation email. Please try again shortly.", "error");
     } finally {
       setResendingEmail(false);
     }
@@ -835,11 +871,11 @@ export default function App() {
     e.preventDefault();
     setRecoveryError("");
     if (newPassword.length < 6) {
-      setRecoveryError("Naya password kam se kam 6 characters ka hona chahiye.");
+      setRecoveryError("New password must be at least 6 characters long.");
       return;
     }
     if (newPassword !== confirmNewPassword) {
-      setRecoveryError("Dono password match nahi kar rahe. Dobara check karein.");
+      setRecoveryError("Passwords do not match. Please enter the same password in both fields.");
       return;
     }
     setUpdatingPassword(true);
@@ -852,9 +888,11 @@ export default function App() {
       if (typeof window !== "undefined" && window.location.hash) {
         window.history.replaceState(null, "", window.location.pathname);
       }
-      showToast("Password successfully update ho gaya! Ab aap logged in hain.", "success");
+      showToast("Password updated successfully! You are now signed in.", "success");
     } catch (err) {
-      setRecoveryError(err.message || "Password update fail ho gaya. Naya reset link mangwayein.");
+      setRecoveryError(
+        err.message || "Could not update password. Please request a new password reset link."
+      );
     } finally {
       setUpdatingPassword(false);
     }
@@ -867,25 +905,27 @@ export default function App() {
     setAuthMode("login");
     setAuthError("");
     setAuthNotice(null);
-    showToast("Aap logout ho gaye hain.", "info");
+    showToast("You have been signed out.", "info");
   };
 
   // Razorpay Checkout Flow
   const handleStartPayment = async (plan) => {
     if (plan.id === "free" || Number(plan.price_inr) <= 0) {
-      showToast("Aapka Free plan active hai!", "info");
+      showToast("Your Free plan is currently active.", "info");
       return;
     }
 
     if (!user || !session?.access_token) {
-      showToast("Plan active karne ke liye pehle Login karein.", "info");
+      showToast("Please sign in to upgrade your plan.", "info");
       return;
     }
 
     setPayingPlanId(plan.id);
     try {
       const sdkLoaded = await loadRazorpayScript();
-      if (!sdkLoaded) throw new Error("Razorpay checkout load nahi ho paya. Internet check karein.");
+      if (!sdkLoaded) {
+        throw new Error("Could not load Razorpay checkout. Please check your internet connection.");
+      }
 
       const clean = normalizeBaseUrl(apiBaseUrl);
       const orderResp = await fetch(`${clean}/api/payments/create-order`, {
@@ -898,9 +938,7 @@ export default function App() {
       });
       const orderData = await orderResp.json();
       if (!orderResp.ok) {
-        throw new Error(
-          orderData.detail || "Backend payment endpoint abhi setup nahi hua hai."
-        );
+        throw new Error(orderData.detail || "Payment endpoint is currently unavailable.");
       }
 
       const creditLabel = isUnlimitedPlan(plan.id, plan.video_limit)
@@ -934,14 +972,17 @@ export default function App() {
               }),
             });
             const verifyData = await verifyResp.json();
-            if (!verifyResp.ok) throw new Error(verifyData.detail || "Payment verification failed");
+            if (!verifyResp.ok) throw new Error(verifyData.detail || "Payment verification failed.");
             await fetchUserPlan(user);
             showToast(
-              `Payment successful! ${plan.name} plan (${creditLabel}) ${plan.duration_days || 30} din ke liye active ho gaya.`,
+              `Payment successful! ${plan.name} plan (${creditLabel}) is now active for ${plan.duration_days || 30} days.`,
               "success"
             );
           } catch (verifyErr) {
-            showToast(verifyErr.message || "Verification error. Support se contact karein.", "error");
+            showToast(
+              verifyErr.message || "Payment verification error. Please contact support.",
+              "error"
+            );
           }
         },
       };
@@ -949,7 +990,7 @@ export default function App() {
       const rzp = new window.Razorpay(options);
       rzp.open();
     } catch (err) {
-      showToast(err.message || "Payment start nahi ho paya.", "error");
+      showToast(err.message || "Could not start payment checkout.", "error");
     } finally {
       setPayingPlanId(null);
     }
@@ -962,25 +1003,21 @@ export default function App() {
     try {
       for (const draft of adminPlanDrafts) {
         const limitVal =
-          draft.id === "unlimited"
-            ? 999999
-            : Math.max(1, Number(draft.video_limit) || 5);
-        const { error } = await supabase
-          .from("plan_config")
-          .upsert({
-            id: draft.id,
-            name: draft.name,
-            price_inr: Math.max(0, Number(draft.price_inr) || 0),
-            price_usd: Math.max(0, Number(draft.price_usd) || 0),
-            video_limit: limitVal,
-            duration_days: Math.max(1, Number(draft.duration_days) || 30),
-            features: Array.isArray(draft.features) ? draft.features : [],
-            updated_at: new Date().toISOString(),
-          });
+          draft.id === "unlimited" ? 999999 : Math.max(1, Number(draft.video_limit) || 5);
+        const { error } = await supabase.from("plan_config").upsert({
+          id: draft.id,
+          name: draft.name,
+          price_inr: Math.max(0, Number(draft.price_inr) || 0),
+          price_usd: Math.max(0, Number(draft.price_usd) || 0),
+          video_limit: limitVal,
+          duration_days: Math.max(1, Number(draft.duration_days) || 30),
+          features: Array.isArray(draft.features) ? draft.features : [],
+          updated_at: new Date().toISOString(),
+        });
         if (error) throw error;
       }
       await fetchPlansConfig();
-      showToast("All plan prices & credit limits updated live!", "success");
+      showToast("All plan prices and credit limits updated live.", "success");
     } catch (err) {
       showToast(err.message || "Failed to save plan prices.", "error");
     } finally {
@@ -1026,12 +1063,12 @@ export default function App() {
     }
   };
 
-  // Admin: Increase or Decrease User Credits by exact delta (+1, -1, +5, custom)
+  // Admin: Increase or Decrease User Credits
   const handleAdminAdjustCredits = async (targetUser, delta) => {
     if (!supabase || !isAdmin || !delta) return;
     const planLimit = getPlanLimitById(targetUser.plan_id);
     if (isUnlimitedPlan(targetUser.plan_id, planLimit)) {
-      showToast("Yeh user Unlimited plan par hai — isme credit limit nahi hoti.", "info");
+      showToast("This user is on the Unlimited plan and has no credit cap.", "info");
       return;
     }
 
@@ -1039,7 +1076,6 @@ export default function App() {
     try {
       const currentUsed = Number(targetUser.videos_used) || 0;
       const currentBonus = Number(targetUser.bonus_credits) || 0;
-      // Clamp so remaining credits never go below 0
       const minBonus = currentUsed - planLimit;
       const nextBonus = Math.max(minBonus, currentBonus + Number(delta));
 
@@ -1056,12 +1092,12 @@ export default function App() {
       if (user?.id === targetUser.user_id) await fetchUserPlan(user);
       showToast(
         delta > 0
-          ? `${targetUser.email} ko +${delta} credits de diye gaye!`
-          : `${targetUser.email} se ${Math.abs(delta)} credit kam kar diye gaye.`,
+          ? `Added +${delta} credits to ${targetUser.email}.`
+          : `Deducted ${Math.abs(delta)} credit(s) from ${targetUser.email}.`,
         "success"
       );
     } catch (err) {
-      showToast(err.message || "Credits update nahi ho paye.", "error");
+      showToast(err.message || "Could not update user credits.", "error");
     } finally {
       setUpdatingUserId(null);
     }
@@ -1083,7 +1119,7 @@ export default function App() {
       if (error) throw error;
       await fetchAdminUsers(true);
       if (user?.id === targetUser.user_id) await fetchUserPlan(user);
-      showToast(`${targetUser.email} ke credits full refill ho gaye.`, "success");
+      showToast(`Credits reset to full quota for ${targetUser.email}.`, "success");
     } catch (err) {
       showToast(err.message || "Could not reset credits.", "error");
     } finally {
@@ -1095,7 +1131,7 @@ export default function App() {
   const handleAdminToggleBlockUser = async (targetUser) => {
     if (!supabase || !isAdmin) return;
     if ((targetUser.email || "").toLowerCase() === ADMIN_EMAIL) {
-      showToast("Aap apni khud ki Admin ID block nahi kar sakte.", "error");
+      showToast("You cannot block your own Admin account.", "error");
       return;
     }
 
@@ -1103,10 +1139,10 @@ export default function App() {
     let reason = targetUser.blocked_reason || "";
     if (willBlock) {
       const inputReason = window.prompt(
-        `Block reason for ${targetUser.email} (optional):`,
+        `Enter a reason for blocking ${targetUser.email} (optional):`,
         "Terms of Service violation / Misuse detected"
       );
-      if (inputReason === null) return; // Cancelled
+      if (inputReason === null) return;
       reason = inputReason.trim() || "Account suspended by administrator for policy violation.";
     }
 
@@ -1125,12 +1161,12 @@ export default function App() {
       await fetchAdminUsers(true);
       showToast(
         willBlock
-          ? `${targetUser.email} ko BLOCK / BAN kar diya gaya hai.`
-          : `${targetUser.email} ko UNBLOCK kar diya gaya hai.`,
+          ? `${targetUser.email} has been blocked.`
+          : `${targetUser.email} has been unblocked.`,
         willBlock ? "error" : "success"
       );
     } catch (err) {
-      showToast(err.message || "Block status update fail ho gaya.", "error");
+      showToast(err.message || "Could not update block status.", "error");
     } finally {
       setUpdatingUserId(null);
     }
@@ -1234,7 +1270,7 @@ export default function App() {
         fetchProjects(clean);
         checkBackendHealth(clean, true);
         showToast(
-          `Done! ${data.verified_clip_count || data.clips?.length || 0} real MP4 clips ready.`,
+          `Done! ${data.verified_clip_count || data.clips?.length || 0} MP4 clips are ready.`,
           "success"
         );
       } else if (data.status === "failed") {
@@ -1324,14 +1360,14 @@ export default function App() {
   const handleStartProcessing = async () => {
     setSubmitError("");
     if (isUserBlocked) {
-      setSubmitError("Aapka account suspend hai. Support se contact karein.");
+      setSubmitError("Your account has been suspended. Please contact support.");
       return;
     }
     if (!creditsInfo.isUnlimited && creditsInfo.isExhausted) {
       setSubmitError(
-        "Aapke saare video credits khatam ho gaye hain (0 left). Nayi video banane ke liye Plans & Pricing se plan upgrade karein."
+        "You have 0 video credits remaining. Please upgrade your plan under Plans & Pricing to continue."
       );
-      showToast("Credits khatam ho gaye hain! Plan upgrade karein.", "error");
+      showToast("No credits remaining. Please upgrade your plan.", "error");
       return;
     }
     if (!health.online || !health.ffmpeg_available) {
@@ -1353,7 +1389,16 @@ export default function App() {
         setSubmitError("Enter a valid direct http(s) video URL.");
         return;
       }
+
       setSubmitting(true);
+      const creditCheck = await reserveOneCredit();
+      if (!creditCheck.ok) {
+        setSubmitting(false);
+        setSubmitError(creditCheck.message);
+        showToast(creditCheck.message, "error");
+        return;
+      }
+
       try {
         const resp = await fetch(`${clean}/api/projects/import-url`, {
           method: "POST",
@@ -1373,19 +1418,19 @@ export default function App() {
         });
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
-        await consumeOneCredit();
         setActiveJobProject(data);
         setSelectedProjectId(data.id);
         startTrackingProject(data.id);
         checkBackendHealth(clean, true);
         showToast(
-          creditsInfo.isUnlimited
+          creditCheck.unlimited
             ? "Video processing started! (Unlimited Plan)"
-            : "1 credit used. Video processing started!",
+            : `1 credit used (${creditCheck.remaining} remaining). Video processing started!`,
           "success"
         );
       } catch (err) {
-        setSubmitError(err.message || "URL import failed.");
+        await refundOneCredit();
+        setSubmitError(err.message || "URL import failed (credit refunded).");
       } finally {
         setSubmitting(false);
       }
@@ -1399,6 +1444,14 @@ export default function App() {
 
     setSubmitting(true);
     setUploadPercent(0);
+    const creditCheck = await reserveOneCredit();
+    if (!creditCheck.ok) {
+      setSubmitting(false);
+      setSubmitError(creditCheck.message);
+      showToast(creditCheck.message, "error");
+      return;
+    }
+
     const formData = new FormData();
     formData.append("file", selectedFile);
     if (projectTitle.trim()) formData.append("title", projectTitle.trim());
@@ -1436,19 +1489,19 @@ export default function App() {
         xhr.send(formData);
       });
 
-      await consumeOneCredit();
       setActiveJobProject(data);
       setSelectedProjectId(data.id);
       startTrackingProject(data.id);
       checkBackendHealth(clean, true);
       showToast(
-        creditsInfo.isUnlimited
+        creditCheck.unlimited
           ? "Video uploaded! AI clipping pipeline is running."
-          : "Video uploaded! 1 credit used — AI clipping pipeline is running.",
+          : `Video uploaded! 1 credit used (${creditCheck.remaining} remaining).`,
         "success"
       );
     } catch (err) {
-      setSubmitError(err.message || "Upload failed.");
+      await refundOneCredit();
+      setSubmitError(err.message || "Upload failed (credit refunded).");
     } finally {
       setSubmitting(false);
     }
@@ -1634,13 +1687,13 @@ export default function App() {
     const userMsg = { role: "user", text: q };
     const lower = q.toLowerCase();
     let reply =
-      "Select any generated clip in Generated Clips and click 'Edit' to trim timestamps, switch 9:16/16:9/1:1, or burn Hindi/Hinglish subtitles directly.";
+      "Select any generated clip in Generated Clips and click 'Edit' to trim timestamps, switch between 9:16, 16:9, or 1:1 formats, or burn animated subtitles directly.";
     if (lower.includes("hinglish") || lower.includes("hindi")) {
       reply =
-        'Hinglish caption idea:\n"Ruko! Aakhiri 5 second bilkul miss mat karna — yahi asli twist hai!"\nTip: Create New Clips me Caption Language "Hinglish" aur style "Bold Viral" select karein.';
+        'High-retention Hindi/Hinglish caption idea:\n"Wait! Do not miss the final 5 seconds — that is the real twist!"\nTip: In Create New Clips, set Caption Language to "Hindi" or "Hinglish" and choose the "Bold Viral" subtitle style.';
     } else if (lower.includes("hook")) {
       reply =
-        '3 High-Retention Opening Hooks:\n1. "Wait 3 seconds before scrolling — this changes everything."\n2. "90% log yeh galti karte hain..."\n3. "Here is the exact moment the whole conversation flipped."';
+        '3 High-Retention Opening Hooks:\n1. "Wait 3 seconds before scrolling — this changes everything."\n2. "90% of creators make this exact mistake..."\n3. "Here is the exact moment the whole conversation flipped."';
     } else if (lower.includes("title")) {
       reply =
         'YouTube Shorts Title Ideas:\n• "The Moment Everyone Replayed"\n• "30 Seconds of Pure Value"\n• "Why Nobody Saw This Coming"';
@@ -1741,7 +1794,7 @@ export default function App() {
           </div>
         </div>
       ) : !user ? (
-        /* ================= 2. MANDATORY LOGIN / SIGN UP GATE ================= */
+        /* ================= 2. MANDATORY LOGIN / SIGN UP GATE (100% ENGLISH) ================= */
         <div className="min-h-screen bg-[#07070f] text-slate-100 flex flex-col justify-between relative overflow-hidden">
           <div className="fixed inset-0 pointer-events-none overflow-hidden">
             <div className="absolute -top-32 -left-24 w-[28rem] h-[28rem] bg-violet-600/20 blur-[130px] rounded-full" />
@@ -1769,7 +1822,7 @@ export default function App() {
             <div className="lg:col-span-7 space-y-6">
               <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-violet-500/15 border border-violet-400/30 text-violet-200 text-xs font-semibold">
                 <Sparkles className="w-3.5 h-3.5 text-cyan-300" />
-                AI Highlight Detection + Viral Hindi/Hinglish Captions
+                AI Highlight Detection + Viral Animated Captions
               </div>
 
               <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight leading-tight">
@@ -1781,9 +1834,9 @@ export default function App() {
               </h1>
 
               <p className="text-sm sm:text-base text-slate-300 leading-relaxed max-w-xl">
-                Apne long YouTube videos, podcasts ya gaming streams ko upload karein — ClipForge AI
-                automatically best moments cut karke 9:16 Reels/Shorts aur animated captions ke saath
-                ready kar deta hai.
+                Upload your long YouTube videos, podcasts, or gaming streams — ClipForge AI
+                automatically detects the best moments, cuts crisp 9:16 Reels and Shorts, and burns
+                animated captions directly into your MP4 exports.
               </p>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-1">
@@ -1791,19 +1844,19 @@ export default function App() {
                   {
                     icon: Scissors,
                     title: "Smart AI Cuts",
-                    desc: "Best viral hooks & moments automatically detect hote hain.",
+                    desc: "Automatically finds engaging hooks and high-retention highlights.",
                     color: "text-violet-400",
                   },
                   {
                     icon: Subtitles,
-                    title: "Hindi & Hinglish",
-                    desc: "6 animated caption styles directly MP4 me burn hote hain.",
+                    title: "Animated Captions",
+                    desc: "6 viral subtitle styles in English, Hindi, and Hinglish burned into MP4.",
                     color: "text-cyan-400",
                   },
                   {
                     icon: Zap,
                     title: "5 Free Credits",
-                    desc: "Account banate hi free plan start — kabhi bhi UPI se upgrade.",
+                    desc: "Start immediately on the Free plan and upgrade anytime via UPI or Card.",
                     color: "text-amber-400",
                   },
                 ].map((f) => {
@@ -1823,7 +1876,7 @@ export default function App() {
 
               <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400 pt-1">
                 <span className="flex items-center gap-1.5">
-                  <Lock className="w-3.5 h-3.5 text-emerald-400" /> Login required to protect your clips & credits
+                  <Lock className="w-3.5 h-3.5 text-emerald-400" /> Sign in required to protect your clips and credits
                 </span>
                 <span className="flex items-center gap-1.5">
                   <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400" /> Instant UPI / Razorpay activation
@@ -1847,7 +1900,7 @@ export default function App() {
                           : "text-slate-400 hover:text-white"
                       }`}
                     >
-                      Login
+                      Sign In
                     </button>
                     <button
                       type="button"
@@ -1868,7 +1921,7 @@ export default function App() {
                 ) : (
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-cyan-300 font-bold text-sm">
-                      <Key className="w-4 h-4" /> Password Reset Karein
+                      <Key className="w-4 h-4" /> Reset Password
                     </div>
                     <button
                       type="button"
@@ -1879,7 +1932,7 @@ export default function App() {
                       }}
                       className="text-xs text-slate-400 hover:text-white underline"
                     >
-                      Back to Login
+                      Back to Sign In
                     </button>
                   </div>
                 )}
@@ -1887,17 +1940,17 @@ export default function App() {
                 <div>
                   <h2 className="text-xl font-extrabold text-white">
                     {authMode === "login"
-                      ? "Studio Me Login Karein"
+                      ? "Sign In to Your Studio"
                       : authMode === "signup"
-                      ? "Apna Free Account Banayein"
-                      : "Password Bhool Gaye?"}
+                      ? "Create Your Free Account"
+                      : "Forgot Your Password?"}
                   </h2>
                   <p className="text-xs text-slate-400 mt-1">
                     {authMode === "login"
-                      ? "Website use karne, credits track karne aur plans manage karne ke liye login zaroori hai."
+                      ? "Sign in to access the video studio, track your monthly credits, and manage your plan."
                       : authMode === "signup"
-                      ? "Sign up karte hi Free Plan (5 credits) milega. Baad me kabhi bhi upgrade kar sakte hain."
-                      : "Apna registered email daalein — hum aapko password reset karne ka link bhejenge."}
+                      ? "Get started with 5 free monthly credits. Upgrade to Pro, Premium, or Unlimited anytime."
+                      : "Enter your registered email address and we will send you a secure password reset link."}
                   </p>
                 </div>
 
@@ -1905,23 +1958,22 @@ export default function App() {
                   <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-400/40 space-y-2.5 text-xs">
                     <div className="flex items-center gap-2 font-bold text-amber-200">
                       <Mail className="w-4 h-4 text-amber-400 shrink-0" />
-                      Email Confirm Karna Baaki Hai!
+                      Email Verification Required
                     </div>
                     <div className="text-amber-100/90 space-y-1.5 leading-relaxed">
                       <p>
-                        <strong>Step 1:</strong> Apna Gmail inbox (ya <strong>Spam</strong> folder) kholein{" "}
+                        <strong>Step 1:</strong> Open your email inbox (or <strong>Spam</strong> folder){" "}
                         {authNotice.email && (
                           <span className="text-cyan-300 font-semibold">({authNotice.email})</span>
                         )}.
                       </p>
                       <p>
-                        <strong>Step 2:</strong> Aaye hue email me{" "}
-                        <strong className="text-white">"Confirm email address"</strong> link par click karein.
+                        <strong>Step 2:</strong> Click the{" "}
+                        <strong className="text-white">"Confirm email address"</strong> link inside the email.
                       </p>
                       <p>
-                        <strong>Step 3:</strong> Confirm hote hi yahan wapas aakar apna{" "}
-                        <strong className="text-white">wahi email aur password</strong> daal kar{" "}
-                        <strong>Login</strong> karein.
+                        <strong>Step 3:</strong> Once confirmed, return here and sign in using the{" "}
+                        <strong className="text-white">same email and password</strong> you entered during sign up.
                       </p>
                     </div>
                     <button
@@ -1936,8 +1988,8 @@ export default function App() {
                         <RefreshCw className="w-3.5 h-3.5" />
                       )}
                       {resendCooldown > 0
-                        ? `Dobara bhejne ke liye ${resendCooldown}s rukein`
-                        : "Email nahi aaya? Confirmation Email Resend Karein"}
+                        ? `Wait ${resendCooldown}s to resend email`
+                        : "Didn't receive the email? Resend Confirmation Link"}
                     </button>
                   </div>
                 )}
@@ -1946,12 +1998,12 @@ export default function App() {
                   <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-400/40 space-y-2 text-xs text-emerald-100">
                     <div className="flex items-center gap-2 font-bold text-emerald-300">
                       <CheckCircle2 className="w-4 h-4 shrink-0" />
-                      Password Reset Link Bhej Diya Gaya Hai!
+                      Password Reset Link Sent
                     </div>
                     <p className="leading-relaxed text-emerald-100/90">
-                      Apna Gmail inbox (ya Spam folder) check karein{" "}
-                      <strong>({authNotice.email})</strong> aur link par click karein — seedha naya
-                      password set karne ka option khul jayega.
+                      Check your email inbox (or Spam folder) for{" "}
+                      <strong>{authNotice.email}</strong> and click the reset link to set a new
+                      password.
                     </p>
                   </div>
                 )}
@@ -1966,7 +2018,7 @@ export default function App() {
                       required
                       value={authEmail}
                       onChange={(e) => setAuthEmail(e.target.value)}
-                      placeholder="you@gmail.com"
+                      placeholder="you@example.com"
                       className="w-full px-4 py-3 rounded-xl bg-black/50 border border-white/10 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-violet-400"
                     />
                   </div>
@@ -1985,7 +2037,7 @@ export default function App() {
                             }}
                             className="text-[11px] font-semibold text-cyan-300 hover:underline"
                           >
-                            Password bhool gaye?
+                            Forgot password?
                           </button>
                         )}
                       </div>
@@ -2031,7 +2083,7 @@ export default function App() {
                       <LogIn className="w-4 h-4" />
                     )}
                     {authMode === "login"
-                      ? "Login & Open Studio"
+                      ? "Sign In & Open Studio"
                       : authMode === "signup"
                       ? "Create Free Account"
                       : "Send Password Reset Link"}
@@ -2041,7 +2093,7 @@ export default function App() {
                 <div className="text-center text-xs text-slate-400 pt-1">
                   {authMode === "login" ? (
                     <>
-                      Naye user hain?{" "}
+                      Don&apos;t have an account?{" "}
                       <button
                         type="button"
                         onClick={() => {
@@ -2051,12 +2103,12 @@ export default function App() {
                         }}
                         className="text-cyan-300 font-semibold hover:underline"
                       >
-                        Free Account Banayein
+                        Create Free Account
                       </button>
                     </>
                   ) : (
                     <>
-                      Pehle se account hai?{" "}
+                      Already have an account?{" "}
                       <button
                         type="button"
                         onClick={() => {
@@ -2066,7 +2118,7 @@ export default function App() {
                         }}
                         className="text-cyan-300 font-semibold hover:underline"
                       >
-                        Login Karein
+                        Sign In
                       </button>
                     </>
                   )}
@@ -2104,10 +2156,10 @@ export default function App() {
               <Ban className="w-8 h-8 text-rose-400" />
             </div>
             <div className="space-y-1.5">
-              <h2 className="text-xl font-extrabold text-white">Account Suspended / Blocked</h2>
+              <h2 className="text-xl font-extrabold text-white">Account Suspended</h2>
               <p className="text-xs text-slate-300 leading-relaxed">
-                Aapki ID (<span className="text-rose-300 font-semibold">{user.email}</span>) ko
-                ClipForge AI administrator ne temporarily block kar diya hai.
+                Your account (<span className="text-rose-300 font-semibold">{user.email}</span>) has
+                been temporarily suspended by the ClipForge AI administrator.
               </p>
             </div>
             {userPlan?.blocked_reason && (
@@ -2116,7 +2168,7 @@ export default function App() {
               </div>
             )}
             <div className="p-3.5 rounded-xl bg-white/[0.04] border border-white/10 text-xs text-slate-300">
-              Agar aapko lagta hai ki yeh galti se hua hai, to support team ko email karein:{" "}
+              If you believe this was a mistake, please contact our support team at:{" "}
               <span className="text-cyan-300 font-semibold block mt-1">{SUPPORT_EMAIL}</span>
             </div>
             <button
@@ -2395,7 +2447,8 @@ export default function App() {
                     </div>
                     <div className="text-rose-200/80 text-xs mt-0.5">
                       {isAdmin
-                        ? health.ffmpeg_error || "Check your backend URL inside Admin Control → Backend Settings."
+                        ? health.ffmpeg_error ||
+                          "Check your backend URL inside Admin Control → Backend Settings."
                         : "Please wait a few seconds and refresh the page."}
                     </div>
                   </div>
@@ -2587,7 +2640,7 @@ export default function App() {
                   <div className="p-5 rounded-2xl bg-white/[0.03] border border-white/10 space-y-3.5">
                     <div className="flex items-center justify-between">
                       <h3 className="font-bold text-sm text-white flex items-center gap-2">
-                        <Sparkles className="w-4 h-4 text-cyan-400" /> 3 Easy Steps To Create Viral Shorts
+                        <Sparkles className="w-4 h-4 text-cyan-400" /> 3 Easy Steps to Create Viral Shorts
                       </h3>
                       <button
                         onClick={() => setActiveTab("create")}
@@ -2601,17 +2654,17 @@ export default function App() {
                         {
                           step: "01",
                           title: "Upload Long Video",
-                          desc: "MP4/MOV upload karein ya direct link paste karein (1 video = 1 credit).",
+                          desc: "Upload an MP4/MOV file or paste a direct video URL (1 video = 1 credit).",
                         },
                         {
                           step: "02",
                           title: "Pick Style & Captions",
-                          desc: "9:16 Reels format aur Hindi/Hinglish/English animated captions chunein.",
+                          desc: "Choose 9:16 Reels format and animated English, Hindi, or Hinglish captions.",
                         },
                         {
                           step: "03",
                           title: "Edit & Download MP4",
-                          desc: "Clips trim karein, preview dekhein aur single MP4 ya full ZIP download karein.",
+                          desc: "Trim clips, preview subtitles, and download individual MP4s or a full ZIP.",
                         },
                       ].map((item) => (
                         <div
@@ -2640,7 +2693,10 @@ export default function App() {
                         onClick={() => fetchProjects(apiBaseUrl)}
                         className="text-xs text-cyan-300 hover:underline flex items-center gap-1"
                       >
-                        <RefreshCw className={`w-3.5 h-3.5 ${loadingProjects ? "animate-spin" : ""}`} /> Refresh
+                        <RefreshCw
+                          className={`w-3.5 h-3.5 ${loadingProjects ? "animate-spin" : ""}`}
+                        />{" "}
+                        Refresh
                       </button>
                     </div>
 
@@ -2678,7 +2734,8 @@ export default function App() {
                                 </span>
                               </div>
                               <div className="text-xs text-slate-400 mt-1">
-                                {proj.mode} · {proj.aspect_ratio} · {proj.verified_clip_count || 0} clips
+                                {proj.mode} · {proj.aspect_ratio} · {proj.verified_clip_count || 0}{" "}
+                                clips
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
@@ -2731,16 +2788,19 @@ export default function App() {
                         <span>
                           {creditsInfo.isUnlimited ? (
                             <>
-                              <strong>Unlimited Plan Active</strong> — Jitni chahein utni videos banayein!
+                              <strong>Unlimited Plan Active</strong> — Create as many videos as you
+                              want with no monthly cap.
                             </>
                           ) : creditsInfo.isExhausted ? (
                             <>
-                              <strong>0 Credits Remaining!</strong> Video banane ke liye plan upgrade karein.
+                              <strong>0 Credits Remaining!</strong> Please upgrade your plan to
+                              process more videos.
                             </>
                           ) : (
                             <>
-                              <strong>{creditsInfo.remaining}</strong> of <strong>{creditsInfo.total}</strong>{" "}
-                              credits available ({creditsInfo.used} used) · 1 video upload = 1 credit
+                              <strong>{creditsInfo.remaining}</strong> of{" "}
+                              <strong>{creditsInfo.total}</strong> credits available (
+                              {creditsInfo.used} used) · 1 video upload = 1 credit
                             </>
                           )}
                         </span>
@@ -2816,7 +2876,7 @@ export default function App() {
                       {importMode === "url" ? (
                         <div className="space-y-2">
                           <label className="text-xs text-slate-300 font-medium">
-                            Direct MP4 / MOV / WEBM URL (Google Drive direct download, Dropbox `dl=1`, or S3 URL)
+                            Direct MP4 / MOV / WEBM URL (Google Drive direct download, Dropbox dl=1, or S3 URL)
                           </label>
                           <input
                             type="url"
@@ -3551,7 +3611,9 @@ export default function App() {
                       </div>
 
                       <div className="p-4 rounded-xl bg-black/30 border border-white/10 space-y-2">
-                        <div className="text-xs font-bold text-violet-300">15 Content-Matched Hashtags</div>
+                        <div className="text-xs font-bold text-violet-300">
+                          15 Content-Matched Hashtags
+                        </div>
                         <div className="flex flex-wrap gap-1.5">
                           {generatedSocialPack.hashtags.map((tag) => (
                             <span
@@ -3591,7 +3653,7 @@ export default function App() {
                       value={assistantPrompt}
                       onChange={(e) => setAssistantPrompt(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleAssistantSend()}
-                      placeholder="Ask for Hindi/Hinglish captions, viral hooks, or Shorts titles..."
+                      placeholder="Ask for captions, viral hooks, or Shorts titles..."
                       className="flex-1 px-4 py-2.5 rounded-xl bg-black/40 border border-white/10 text-sm"
                     />
                     <button
@@ -3630,7 +3692,8 @@ export default function App() {
                       </div>
                       {effectivePlan.isPaid && (
                         <div className="text-xs text-slate-400 mt-0.5">
-                          Valid until {formatDateShort(effectivePlan.validUntil)} · Instant UPI activation supported
+                          Valid until {formatDateShort(effectivePlan.validUntil)} · Instant UPI
+                          activation supported
                         </div>
                       )}
                     </div>
@@ -3709,7 +3772,8 @@ export default function App() {
                                 </>
                               ) : (
                                 <>
-                                  <Zap className="w-3.5 h-3.5" /> {plan.video_limit} Video Credits / month
+                                  <Zap className="w-3.5 h-3.5" /> {plan.video_limit} Video Credits /
+                                  month
                                 </>
                               )}
                             </div>
@@ -3793,7 +3857,9 @@ export default function App() {
                       }}
                       className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-white flex items-center gap-1.5"
                     >
-                      <RefreshCw className={`w-3.5 h-3.5 ${loadingAdminUsers ? "animate-spin" : ""}`} />
+                      <RefreshCw
+                        className={`w-3.5 h-3.5 ${loadingAdminUsers ? "animate-spin" : ""}`}
+                      />
                       Sync Now
                     </button>
                   </div>
@@ -3916,9 +3982,9 @@ export default function App() {
 
                       {filteredAdminUsers.length === 0 ? (
                         <div className="text-center py-8 text-xs text-slate-400 space-y-1">
-                          <div>No users visible yet.</div>
+                          <div>No users found.</div>
                           <div className="text-[11px] text-amber-300/80">
-                            Make sure you ran the Supabase SQL setup query so existing users sync into{" "}
+                            Ensure the Supabase SQL setup script has been executed to sync users into{" "}
                             <code>user_plans</code>.
                           </div>
                         </div>
@@ -3962,7 +4028,6 @@ export default function App() {
                                     key={u.user_id}
                                     className={isBlockedRow ? "bg-rose-950/20" : ""}
                                   >
-                                    {/* Email + Online/Blocked Status */}
                                     <td className="py-3.5 pr-4">
                                       <div className="flex items-center gap-2">
                                         <span
@@ -3993,7 +4058,6 @@ export default function App() {
                                       </div>
                                     </td>
 
-                                    {/* Plan + Days Left */}
                                     <td className="py-3.5 pr-4">
                                       <div className="uppercase font-bold text-cyan-300">
                                         {u.plan_id}
@@ -4009,7 +4073,6 @@ export default function App() {
                                       </div>
                                     </td>
 
-                                    {/* Credits Left + Direct +/- Adjustment */}
                                     <td className="py-3.5 pr-4">
                                       {isUnlim ? (
                                         <div className="inline-flex items-center gap-1 text-emerald-300 font-bold">
@@ -4097,7 +4160,6 @@ export default function App() {
                                       )}
                                     </td>
 
-                                    {/* Plan Upgrade + Block/Unblock */}
                                     <td className="py-3.5 text-right">
                                       <div className="inline-flex flex-wrap justify-end gap-1.5">
                                         <button
@@ -4161,14 +4223,14 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* Sub-tab 2: Live Price & Plan Editor (4 Plans incl. Unlimited) */}
+                  {/* Sub-tab 2: Live Price & Plan Editor */}
                   {adminSubTab === "pricing" && (
                     <div className="p-6 rounded-2xl bg-white/[0.04] border border-white/10 space-y-5">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div>
                           <h3 className="font-bold text-base">Manage Live Plan Prices & Credit Limits</h3>
                           <p className="text-xs text-slate-400 mt-0.5">
-                            Yahan se price ya credit limit change karke save karte hi public website aur checkout turant update ho jayega.
+                            Changes saved here immediately update the public pricing page and checkout amounts.
                           </p>
                         </div>
                         <button
@@ -4308,7 +4370,9 @@ export default function App() {
                           onClick={() => checkBackendHealth(apiBaseUrl)}
                           className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs flex items-center gap-1.5"
                         >
-                          <RefreshCw className={`w-3.5 h-3.5 ${health.checking ? "animate-spin" : ""}`} />
+                          <RefreshCw
+                            className={`w-3.5 h-3.5 ${health.checking ? "animate-spin" : ""}`}
+                          />
                           Refresh
                         </button>
                       </div>
@@ -4393,7 +4457,9 @@ export default function App() {
                         {health.ffmpeg_version && (
                           <div className="text-slate-400 font-mono">{health.ffmpeg_version}</div>
                         )}
-                        {health.ffmpeg_error && <div className="text-rose-300">{health.ffmpeg_error}</div>}
+                        {health.ffmpeg_error && (
+                          <div className="text-rose-300">{health.ffmpeg_error}</div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -4457,9 +4523,9 @@ export default function App() {
                   <Key className="w-4 h-4 text-cyan-300" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-base text-white">Naya Password Set Karein</h3>
+                  <h3 className="font-bold text-base text-white">Set New Password</h3>
                   <p className="text-xs text-slate-400">
-                    Apne ClipForge AI account ke liye naya password daalein.
+                    Enter a new password for your ClipForge AI account.
                   </p>
                 </div>
               </div>
@@ -4502,7 +4568,7 @@ export default function App() {
                   minLength={6}
                   value={confirmNewPassword}
                   onChange={(e) => setConfirmNewPassword(e.target.value)}
-                  placeholder="Wahi password dobara likhein"
+                  placeholder="Re-enter your new password"
                   className="w-full px-3.5 py-2.5 rounded-xl bg-black/50 border border-white/10 text-sm text-white focus:outline-none focus:border-cyan-400"
                 />
               </div>
@@ -4559,7 +4625,8 @@ export default function App() {
                   <strong>Payments:</strong> All payments are securely processed via Razorpay. ClipForge AI never stores your UPI PIN, card number, CVV, or netbanking credentials.
                 </p>
                 <p>
-                  For data deletion requests, email us at <span className="text-cyan-300">{SUPPORT_EMAIL}</span>.
+                  For data deletion requests, email us at{" "}
+                  <span className="text-cyan-300">{SUPPORT_EMAIL}</span>.
                 </p>
               </div>
             )}
@@ -4592,7 +4659,8 @@ export default function App() {
                   <strong>Cancellation:</strong> Plans are one-time 30-day passes with no forced auto-debit. You can simply choose not to renew after your 30-day period ends.
                 </p>
                 <p>
-                  Approved refunds are credited back to the original payment method within 5–7 business days. Contact <span className="text-cyan-300">{SUPPORT_EMAIL}</span> with your Razorpay Payment ID for assistance.
+                  Approved refunds are credited back to the original payment method within 5–7 business days. Contact{" "}
+                  <span className="text-cyan-300">{SUPPORT_EMAIL}</span> with your Razorpay Payment ID for assistance.
                 </p>
               </div>
             )}
