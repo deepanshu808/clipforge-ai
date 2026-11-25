@@ -305,10 +305,11 @@ export default function App() {
     rate_limit: "5 uploads / 15 min",
   });
 
-  // Real Backend Projects
+  // Per-User Isolated Backend Projects
   const [projects, setProjects] = useState([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState(null);
+  const ownedProjectIdsRef = useRef(new Set());
 
   // Create New Clips Form
   const [importMode, setImportMode] = useState("upload");
@@ -536,6 +537,23 @@ export default function App() {
         is_blocked: false,
       });
     }
+  };
+
+  // Register newly created project ID to the logged-in user (strict per-user isolation)
+  const registerUserProject = async (projectId, ownerId = user?.id) => {
+    if (!projectId || !ownerId) return;
+    const pid = String(projectId);
+    ownedProjectIdsRef.current.add(pid);
+    if (!supabase) return;
+    try {
+      await supabase.from("user_projects").upsert(
+        {
+          project_id: pid,
+          user_id: ownerId,
+        },
+        { onConflict: "project_id" }
+      );
+    } catch {}
   };
 
   // Reserve & deduct 1 credit atomically via Supabase Postgres RPC
@@ -899,6 +917,15 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+    stopTracking();
+    ownedProjectIdsRef.current = new Set();
+    setProjects([]);
+    setSelectedProjectId(null);
+    setActiveJobProject(null);
+    setEditingContext(null);
+    setEditDraft(null);
+    setEditHistory([]);
+    setEditFuture([]);
     if (supabase) await supabase.auth.signOut();
     setUserPlan(null);
     setActiveTab("dashboard");
@@ -1205,30 +1232,69 @@ export default function App() {
     }
   };
 
-  const fetchProjects = async (targetUrl = apiBaseUrl) => {
+  // Fetch ONLY the logged-in user's own active projects (auto-expired videos naturally disappear)
+  const fetchProjects = async (targetUrl = apiBaseUrl, targetUserId = user?.id) => {
+    if (!targetUserId) {
+      setProjects([]);
+      setSelectedProjectId(null);
+      return;
+    }
     const clean = normalizeBaseUrl(targetUrl);
     setLoadingProjects(true);
     try {
-      const resp = await fetch(`${clean}/api/projects`);
+      const ownedIds = new Set(ownedProjectIdsRef.current);
+      if (supabase) {
+        const { data: rows, error } = await supabase
+          .from("user_projects")
+          .select("project_id")
+          .eq("user_id", targetUserId);
+        if (!error && Array.isArray(rows)) {
+          rows.forEach((r) => {
+            if (r?.project_id) ownedIds.add(String(r.project_id));
+          });
+        }
+      }
+      ownedProjectIdsRef.current = ownedIds;
+
+      const headers = session?.access_token
+        ? { Authorization: `Bearer ${session.access_token}` }
+        : {};
+      const resp = await fetch(`${clean}/api/projects`, { headers });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const list = await resp.json();
-      setProjects(Array.isArray(list) ? list : []);
-      if (Array.isArray(list) && list.length > 0 && !selectedProjectId) {
-        setSelectedProjectId(list[0].id);
-      }
+
+      // Strict per-user filtering so one user NEVER sees another user's videos
+      const userOnlyList = Array.isArray(list)
+        ? list.filter((p) => ownedIds.has(String(p.id)))
+        : [];
+
+      setProjects(userOnlyList);
+      setSelectedProjectId((prev) =>
+        userOnlyList.some((p) => p.id === prev) ? prev : userOnlyList[0]?.id || null
+      );
     } catch {} finally {
       setLoadingProjects(false);
     }
   };
 
+  // Reset & reload user-specific projects whenever user switches or logs in/out
   useEffect(() => {
+    stopTracking();
+    ownedProjectIdsRef.current = new Set();
+    setProjects([]);
+    setSelectedProjectId(null);
+    setActiveJobProject(null);
+    setEditingContext(null);
+    setEditDraft(null);
+    setEditHistory([]);
+    setEditFuture([]);
+
     if (!user || isUserBlocked) return;
     checkBackendHealth(apiBaseUrl).then((ok) => {
-      if (ok) fetchProjects(apiBaseUrl);
+      if (ok) fetchProjects(apiBaseUrl, user.id);
     });
     return () => {
-      if (eventSourceRef.current) eventSourceRef.current.close();
-      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+      stopTracking();
     };
   }, [apiBaseUrl, user?.id, isUserBlocked]);
 
@@ -1253,7 +1319,7 @@ export default function App() {
     }
   };
 
-  const startTrackingProject = (projectId) => {
+  const startTrackingProject = (projectId, ownerId = user?.id) => {
     stopTracking();
     const clean = normalizeBaseUrl(apiBaseUrl);
 
@@ -1267,7 +1333,7 @@ export default function App() {
       if (data.status === "completed") {
         stopTracking();
         setSelectedProjectId(data.id);
-        fetchProjects(clean);
+        fetchProjects(clean, ownerId);
         checkBackendHealth(clean, true);
         showToast(
           `Done! ${data.verified_clip_count || data.clips?.length || 0} MP4 clips are ready.`,
@@ -1325,7 +1391,7 @@ export default function App() {
     setApiBaseUrl(clean);
     const ok = await checkBackendHealth(clean);
     if (ok) {
-      await fetchProjects(clean);
+      await fetchProjects(clean, user?.id);
       showToast("Connected to FFmpeg backend!", "success");
     } else {
       showToast("Could not connect to backend URL.", "error");
@@ -1418,9 +1484,10 @@ export default function App() {
         });
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
+        await registerUserProject(data.id, user?.id);
         setActiveJobProject(data);
         setSelectedProjectId(data.id);
-        startTrackingProject(data.id);
+        startTrackingProject(data.id, user?.id);
         checkBackendHealth(clean, true);
         showToast(
           creditCheck.unlimited
@@ -1489,9 +1556,10 @@ export default function App() {
         xhr.send(formData);
       });
 
+      await registerUserProject(data.id, user?.id);
       setActiveJobProject(data);
       setSelectedProjectId(data.id);
-      startTrackingProject(data.id);
+      startTrackingProject(data.id, user?.id);
       checkBackendHealth(clean, true);
       showToast(
         creditCheck.unlimited
@@ -1514,7 +1582,7 @@ export default function App() {
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.detail || "Retry failed");
       setActiveJobProject(data);
-      startTrackingProject(projectId);
+      startTrackingProject(projectId, user?.id);
       showToast("Job restarted.", "info");
     } catch (err) {
       showToast(err.message || "Could not retry job.", "error");
@@ -1528,7 +1596,7 @@ export default function App() {
         method: "DELETE",
       });
       if (!resp.ok) throw new Error("Delete failed");
-      await fetchProjects(clean);
+      await fetchProjects(clean, user?.id);
       showToast("Clip deleted.", "info");
     } catch (err) {
       showToast(err.message || "Could not delete clip.", "error");
@@ -1616,7 +1684,7 @@ export default function App() {
         srt_url: updated.srt_url,
       }));
       setCacheBuster(Date.now());
-      await fetchProjects(clean);
+      await fetchProjects(clean, user?.id);
       setEditorMessage("Re-rendered real MP4 and updated preview!");
       showToast("Clip re-rendered successfully!", "success");
     } catch (err) {
@@ -2594,7 +2662,7 @@ export default function App() {
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
                     {[
                       {
-                        label: "Videos Processed",
+                        label: "Active Videos",
                         value: projects.length,
                         icon: Video,
                         color: "text-violet-400",
@@ -2685,12 +2753,17 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Recent Projects */}
+                  {/* Recent Projects (Private to Current User + 3h Auto-Expiry Info) */}
                   <div className="p-6 rounded-2xl bg-white/[0.04] border border-white/10 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-bold text-base">Recent Projects</h3>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h3 className="font-bold text-base">Your Recent Projects</h3>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          Private to your account · Videos auto-expire and delete after 3 hours for privacy.
+                        </p>
+                      </div>
                       <button
-                        onClick={() => fetchProjects(apiBaseUrl)}
+                        onClick={() => fetchProjects(apiBaseUrl, user?.id)}
                         className="text-xs text-cyan-300 hover:underline flex items-center gap-1"
                       >
                         <RefreshCw
@@ -2702,7 +2775,7 @@ export default function App() {
 
                     {projects.length === 0 ? (
                       <div className="text-center py-10 text-slate-400 text-sm">
-                        No processed videos yet. Click{" "}
+                        No active videos in your account yet. Click{" "}
                         <button
                           onClick={() => setActiveTab("create")}
                           className="text-cyan-300 font-semibold hover:underline"
@@ -3204,6 +3277,14 @@ export default function App() {
               {/* ================= GENERATED CLIPS ================= */}
               {activeTab === "clips" && (
                 <div className="space-y-5">
+                  <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-400/30 text-xs text-amber-200 flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-amber-300 shrink-0" />
+                    <span>
+                      Your clips are private to your account and automatically expire after{" "}
+                      <strong>3 hours</strong> to keep storage clean. Download your MP4s or ZIP before expiry.
+                    </span>
+                  </div>
+
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-white/[0.04] border border-white/10">
                     <div className="flex items-center gap-3 flex-wrap">
                       <FolderOpen className="w-5 h-5 text-violet-400" />
@@ -3212,7 +3293,7 @@ export default function App() {
                         onChange={(e) => setSelectedProjectId(e.target.value)}
                         className="px-3.5 py-2 rounded-xl bg-[#0d0d1d] border border-white/10 text-sm font-medium"
                       >
-                        {projects.length === 0 && <option value="">No projects yet</option>}
+                        {projects.length === 0 && <option value="">No active projects</option>}
                         {projects.map((p) => (
                           <option key={p.id} value={p.id}>
                             {p.title} ({p.verified_clip_count || 0} clips · {p.status})
@@ -3237,7 +3318,7 @@ export default function App() {
 
                   {!selectedProject || !selectedProject.clips?.length ? (
                     <div className="p-12 text-center rounded-2xl bg-white/[0.03] border border-white/10 text-slate-400 text-sm">
-                      No verified MP4 clips found for this project yet. Upload a video in{" "}
+                      No active MP4 clips found in your account. Upload a video in{" "}
                       <button
                         onClick={() => setActiveTab("create")}
                         className="text-cyan-300 underline font-semibold"
