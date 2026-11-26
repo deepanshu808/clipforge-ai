@@ -865,8 +865,8 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
   // Subtle Floating Depth Particles
   ctx.save();
   for (let i = 0; i < 14; i++) {
-    const px = ((Math.sin(i * 12.7 + currentTime * 0.25) * 0.5 + 0.5) * width);
-    const py = (((i * 97 + currentTime * (14 + (i % 4) * 6)) % (height + 40)) - 20);
+    const px = (Math.sin(i * 12.7 + currentTime * 0.25) * 0.5 + 0.5) * width;
+    const py = ((i * 97 + currentTime * (14 + (i % 4) * 6)) % (height + 40)) - 20;
     const pr = 1.5 + (i % 3);
     ctx.fillStyle = i % 2 === 0 ? `${theme.accent}35` : `${theme.accent2}30`;
     ctx.beginPath();
@@ -899,14 +899,12 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
         const kenBurns = 1.0 + normT * 0.06;
         drawCoverVideo(ctx, sourceVideoEl, 0, 0, width, height, kenBurns);
 
-        // Subtle cinematic vignette at bottom for caption readability
         const vig = ctx.createLinearGradient(0, height * 0.58, 0, height);
         vig.addColorStop(0, "transparent");
         vig.addColorStop(1, "rgba(0,0,0,0.78)");
         ctx.fillStyle = vig;
         ctx.fillRect(0, height * 0.58, width, height * 0.42);
       } else {
-        // Clean studio placeholder when video not uploaded yet
         const boxW = width * 0.8;
         const boxH = minDim * 0.34;
         ctx.fillStyle = theme.cardBg;
@@ -922,10 +920,13 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
         ctx.fillText("ORIGINAL VIDEO CUTAWAY", width / 2, height / 2 - minDim * 0.04);
         ctx.fillStyle = theme.sub;
         ctx.font = `500 ${Math.round(minDim * 0.032)}px Inter, system-ui, sans-serif`;
-        ctx.fillText("Upload your Original Video (A-Roll) to show here", width / 2, height / 2 + minDim * 0.04);
+        ctx.fillText(
+          "Upload your Original Video (A-Roll) to show here",
+          width / 2,
+          height / 2 + minDim * 0.04
+        );
       }
 
-      // Optional stylish bottom caption bar on original video
       if (cue.sub) {
         const capSize = Math.round(minDim * 0.044);
         ctx.font = `800 ${capSize}px Inter, system-ui, sans-serif`;
@@ -965,7 +966,6 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
       const vX = isVertical ? (width - vW) / 2 : width * 0.06;
       const vY = isVertical ? height * 0.11 : (height - vH) / 2;
 
-      // Video Frame Card with glow border
       ctx.save();
       ctx.shadowColor = "rgba(0,0,0,0.45)";
       ctx.shadowBlur = 28;
@@ -995,7 +995,6 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
       drawRoundedRect(ctx, vX, vY + (1 - ease) * 20, vW, vH, 26);
       ctx.stroke();
 
-      // Companion Motion Graphic Card (below in 9:16, right side in 16:9)
       const cX = isVertical ? width * 0.09 : width * 0.54;
       const cW = isVertical ? width * 0.82 : width * 0.4;
       const cH = isVertical ? height * 0.34 : height * 0.54;
@@ -1005,16 +1004,29 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
       ctx.fillStyle = theme.cardBg;
       ctx.strokeStyle = theme.cardBorder;
       ctx.lineWidth = 2.5;
-      drawRoundedRect(ctx, cX + (isVertical ? 0 : slideOffset), cY + (isVertical ? slideOffset : 0), cW, cH, 26);
+      drawRoundedRect(
+        ctx,
+        cX + (isVertical ? 0 : slideOffset),
+        cY + (isVertical ? slideOffset : 0),
+        cW,
+        cH,
+        26
+      );
       ctx.fill();
       ctx.stroke();
 
       const cxCenter = cX + cW / 2 + (isVertical ? 0 : slideOffset);
       const cyCenter = cY + cH / 2 + (isVertical ? slideOffset : 0);
 
-      // Accent pill top
       ctx.fillStyle = theme.accent;
-      drawRoundedRect(ctx, cxCenter - cW * 0.16, cY + 20 + (isVertical ? slideOffset : 0), cW * 0.32, 6, 3);
+      drawRoundedRect(
+        ctx,
+        cxCenter - cW * 0.16,
+        cY + 20 + (isVertical ? slideOffset : 0),
+        cW * 0.32,
+        6,
+        3
+      );
       ctx.fill();
 
       const tSize = Math.round(minDim * 0.058);
@@ -1023,7 +1035,8 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       const tLines = wrapCanvasText(ctx, cue.text, cW * 0.84);
-      const startY = cyCenter - (cue.sub ? tSize * 0.6 : 0) - ((tLines.length - 1) * tSize * 1.15) / 2;
+      const startY =
+        cyCenter - (cue.sub ? tSize * 0.6 : 0) - ((tLines.length - 1) * tSize * 1.15) / 2;
       tLines.forEach((ln, i) => ctx.fillText(ln, cxCenter, startY + i * tSize * 1.18));
 
       if (cue.sub) {
@@ -1097,7 +1110,6 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
       const barY = -barH * 0.8;
       const barR = barH / 2;
 
-      // Optional Label Above Bar
       if (cue.sub) {
         ctx.font = `700 ${Math.round(minDim * 0.036)}px Inter, system-ui, sans-serif`;
         ctx.fillStyle = theme.accent;
@@ -1106,7 +1118,6 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
         ctx.fillText(cue.sub.toUpperCase(), 0, barY - minDim * 0.07);
       }
 
-      // Dark Pill Search Bar with Soft Shadow
       ctx.save();
       ctx.shadowColor = "rgba(0,0,0,0.38)";
       ctx.shadowBlur = 30;
@@ -1121,7 +1132,6 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
       drawRoundedRect(ctx, -barW / 2, barY, barW, barH, barR);
       ctx.stroke();
 
-      // Typewriter Prompt Text inside Bar
       const typeFrac = Math.min(1, elapsed / Math.min(1.1, dur * 0.42));
       const typedCount = Math.max(1, Math.floor(cue.text.length * typeFrac));
       const typed = cue.text.slice(0, typedCount);
@@ -1131,9 +1141,12 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
       ctx.fillStyle = "#ffffff";
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      ctx.fillText(typed + (showCaret && normT < 0.58 ? "|" : ""), -barW / 2 + barH * 0.42, barY + barH / 2);
+      ctx.fillText(
+        typed + (showCaret && normT < 0.58 ? "|" : ""),
+        -barW / 2 + barH * 0.42,
+        barY + barH / 2
+      );
 
-      // Glowing Orb Button on Right Side of Bar
       const orbX = barW / 2 - barH * 0.52;
       const orbY = barY + barH / 2;
       const orbR = barH * 0.34;
@@ -1142,7 +1155,6 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
       const clickProgress = clicked ? Math.min(1, (elapsed - clickTime) / 0.5) : 0;
       const orbScale = clicked ? 1 - Math.sin(clickProgress * Math.PI) * 0.16 : 1;
 
-      // Click Ripple Ring
       if (clicked && clickProgress < 1) {
         ctx.save();
         ctx.globalAlpha = (1 - clickProgress) * 0.7;
@@ -1163,9 +1175,7 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
       ctx.arc(orbX, orbY, orbR * orbScale, 0, Math.PI * 2);
       ctx.fill();
 
-      // Pop-out UI Cards Below Search Bar After Click
       if (clicked) {
-        const cardsEase = easeOutBack(Math.min(1, (elapsed - clickTime) / 0.55));
         const cardCount = 3;
         const gap = minDim * 0.035;
         const cW = Math.min(barW * 0.29, minDim * 0.24);
@@ -1182,7 +1192,6 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
           const cx = -totalRowW / 2 + i * (cW + gap) + cW / 2;
           const cy = rowY + cH / 2 + (1 - itemEase) * 45;
 
-          // Subtle connecting dotted line from bar to card
           ctx.save();
           ctx.strokeStyle = `${theme.accent}66`;
           ctx.setLineDash([4, 5]);
@@ -1200,7 +1209,14 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
           ctx.fillStyle = theme.cardBg;
           ctx.strokeStyle = theme.cardBorder;
           ctx.lineWidth = 2;
-          drawRoundedRect(ctx, cx - (cW * itemEase) / 2, cy - (cH * itemEase) / 2, cW * itemEase, cH * itemEase, 18);
+          drawRoundedRect(
+            ctx,
+            cx - (cW * itemEase) / 2,
+            cy - (cH * itemEase) / 2,
+            cW * itemEase,
+            cH * itemEase,
+            18
+          );
           ctx.fill();
           ctx.stroke();
 
@@ -1218,7 +1234,6 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
         }
       }
 
-      // Animated Mouse Cursor Gliding to Orb and Clicking
       const cursorAppear = Math.min(1, Math.max(0, (elapsed - dur * 0.22) / (dur * 0.28)));
       if (cursorAppear > 0) {
         const ce = easeOutCubic(cursorAppear);
@@ -1265,21 +1280,18 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
       const leftX = -chartW / 2;
       const topY = -chartH / 2 + minDim * 0.05;
 
-      // Title Above Chart
       ctx.font = `800 ${Math.round(minDim * 0.06)}px Inter, system-ui, sans-serif`;
       ctx.fillStyle = textColor;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(cue.text, 0, topY - minDim * 0.11);
 
-      // Compute Coordinates
       const coords = pts.map((v, i) => ({
         x: leftX + (i / (pts.length - 1)) * chartW,
         y: topY + chartH - ((v - minV) / span) * chartH,
         val: v,
       }));
 
-      // Subtle Horizontal Reference Lines
       ctx.save();
       ctx.strokeStyle = isLightTheme ? "rgba(24,24,27,0.1)" : "rgba(255,255,255,0.08)";
       ctx.lineWidth = 1;
@@ -1302,7 +1314,6 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
       const ballY =
         coords[activeSegIdx].y + (coords[activeSegIdx + 1].y - coords[activeSegIdx].y) * segFrac;
 
-      // Translucent Gradient Area Under Drawn Line
       ctx.save();
       ctx.beginPath();
       ctx.moveTo(coords[0].x, topY + chartH);
@@ -1320,7 +1331,6 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
       ctx.fill();
       ctx.restore();
 
-      // Ghost Preview Line Ahead
       ctx.save();
       ctx.strokeStyle = isLightTheme ? "rgba(24,24,27,0.16)" : "rgba(255,255,255,0.14)";
       ctx.lineWidth = 3;
@@ -1330,7 +1340,6 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
       ctx.stroke();
       ctx.restore();
 
-      // Active Glowing Path Line
       ctx.save();
       ctx.strokeStyle = cue.color || theme.accent;
       ctx.lineWidth = 5;
@@ -1347,7 +1356,6 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
       ctx.stroke();
       ctx.restore();
 
-      // Diamond Nodes Along Curve (Light up as orb passes!)
       coords.forEach((p, i) => {
         const reached = i <= segFloat + 0.05;
         drawDiamond(
@@ -1360,12 +1368,18 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
         );
       });
 
-      // Glowing Orb Riding the Curve
       const orbR = Math.round(minDim * 0.038);
       ctx.save();
       ctx.shadowColor = theme.accent;
       ctx.shadowBlur = 28;
-      const gOrb = ctx.createRadialGradient(ballX - orbR * 0.25, ballY - orbR * 0.25, 2, ballX, ballY, orbR);
+      const gOrb = ctx.createRadialGradient(
+        ballX - orbR * 0.25,
+        ballY - orbR * 0.25,
+        2,
+        ballX,
+        ballY,
+        orbR
+      );
       gOrb.addColorStop(0, "#ffffff");
       gOrb.addColorStop(0.45, theme.accent);
       gOrb.addColorStop(1, theme.accent2);
@@ -1398,7 +1412,6 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
         { x: spreadX, y: hubY + spreadY },
       ];
 
-      // Connecting Curved Dotted Energy Lines
       positions.forEach((pos, i) => {
         const lineT = easeOutCubic(Math.min(1, Math.max(0, (elapsed - i * 0.1) / 0.45)));
         if (lineT <= 0) return;
@@ -1409,12 +1422,16 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
         ctx.lineDashOffset = -currentTime * 28;
         ctx.beginPath();
         ctx.moveTo(0, hubY);
-        ctx.quadraticCurveTo(pos.x * 0.45 * lineT, hubY, pos.x * lineT, hubY + (pos.y - hubY) * lineT);
+        ctx.quadraticCurveTo(
+          pos.x * 0.45 * lineT,
+          hubY,
+          pos.x * lineT,
+          hubY + (pos.y - hubY) * lineT
+        );
         ctx.stroke();
         ctx.restore();
       });
 
-      // Central Glowing Sunburst Core
       const coreR = minDim * 0.11;
       const coreGlow = ctx.createRadialGradient(0, hubY, 4, 0, hubY, coreR * 1.9);
       coreGlow.addColorStop(0, `${theme.accent}88`);
@@ -1424,9 +1441,17 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
       ctx.arc(0, hubY, coreR * 1.9, 0, Math.PI * 2);
       ctx.fill();
 
-      drawStarburst(ctx, 0, hubY, 12, coreR, coreR * 0.24, currentTime * 0.7, cue.color || theme.accent);
+      drawStarburst(
+        ctx,
+        0,
+        hubY,
+        12,
+        coreR,
+        coreR * 0.24,
+        currentTime * 0.7,
+        cue.color || theme.accent
+      );
 
-      // 4 Floating Radiating Cards
       positions.forEach((pos, i) => {
         const cardT = Math.min(1, Math.max(0, (elapsed - 0.15 - i * 0.12) / 0.45));
         if (cardT <= 0) return;
@@ -1453,7 +1478,6 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
         ctx.restore();
       });
 
-      // Bottom Kinetic Caption
       ctx.font = `900 ${Math.round(minDim * 0.062)}px Inter, system-ui, sans-serif`;
       ctx.fillStyle = textColor;
       ctx.textAlign = "center";
@@ -1467,7 +1491,6 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
       const outerR = minDim * 0.21;
       const innerR = minDim * 0.14;
 
-      // Base Rings
       ctx.save();
       ctx.strokeStyle = isLightTheme ? "rgba(24,24,27,0.14)" : "rgba(255,255,255,0.12)";
       ctx.lineWidth = 5;
@@ -1482,8 +1505,8 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
       ctx.stroke();
       ctx.restore();
 
-      // Animated Glowing Arc
-      const arcAngle = easeOutCubic(Math.min(1, elapsed / Math.max(0.8, dur * 0.7))) * Math.PI * 1.65;
+      const arcAngle =
+        easeOutCubic(Math.min(1, elapsed / Math.max(0.8, dur * 0.7))) * Math.PI * 1.65;
       const startA = -Math.PI / 2 + currentTime * 0.8;
       ctx.save();
       ctx.strokeStyle = cue.color || theme.accent;
@@ -1496,21 +1519,33 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
       ctx.stroke();
       ctx.restore();
 
-      // 4 Orbiting Diamond Satellites
       for (let i = 0; i < 4; i++) {
         const a = startA + (i * Math.PI) / 2;
         const dx = Math.cos(a) * outerR;
         const dy = cy + Math.sin(a) * outerR;
-        drawDiamond(ctx, dx, dy, i === 0 ? 10 : 7, i % 2 === 0 ? theme.accent : theme.accent2, "#ffffff");
+        drawDiamond(
+          ctx,
+          dx,
+          dy,
+          i === 0 ? 10 : 7,
+          i % 2 === 0 ? theme.accent : theme.accent2,
+          "#ffffff"
+        );
       }
 
-      // Glowing Center Sphere
       const sphereR = minDim * 0.085;
       const pulse = 1 + Math.sin(currentTime * 4) * 0.04;
       ctx.save();
       ctx.shadowColor = theme.accent;
       ctx.shadowBlur = 30;
-      const sg = ctx.createRadialGradient(-sphereR * 0.25, cy - sphereR * 0.25, 3, 0, cy, sphereR * pulse);
+      const sg = ctx.createRadialGradient(
+        -sphereR * 0.25,
+        cy - sphereR * 0.25,
+        3,
+        0,
+        cy,
+        sphereR * pulse
+      );
       sg.addColorStop(0, "#ffffff");
       sg.addColorStop(0.5, theme.accent);
       sg.addColorStop(1, theme.accent2);
@@ -1520,9 +1555,17 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
       ctx.fill();
       ctx.restore();
 
-      drawStarburst(ctx, 0, cy, 8, sphereR * 0.45, sphereR * 0.14, -currentTime * 1.2, "#ffffff");
+      drawStarburst(
+        ctx,
+        0,
+        cy,
+        8,
+        sphereR * 0.45,
+        sphereR * 0.14,
+        -currentTime * 1.2,
+        "#ffffff"
+      );
 
-      // Title + Sub Below Orbit
       ctx.font = `900 ${Math.round(minDim * 0.066)}px Inter, system-ui, sans-serif`;
       ctx.fillStyle = textColor;
       ctx.textAlign = "center";
@@ -1557,14 +1600,12 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
       const barW = Math.min(minDim * 0.18, (chartW - barGap * (pairs.length - 1)) / pairs.length);
       const totalW = pairs.length * barW + (pairs.length - 1) * barGap;
 
-      // Title
       ctx.font = `900 ${Math.round(minDim * 0.062)}px Inter, system-ui, sans-serif`;
       ctx.fillStyle = textColor;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(cue.text, 0, baseY - maxBarH - minDim * 0.11);
 
-      // Baseline
       ctx.strokeStyle = isLightTheme ? "rgba(24,24,27,0.2)" : "rgba(255,255,255,0.2)";
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -1586,14 +1627,14 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
         drawRoundedRect(ctx, bx, by, barW, h, 14);
         ctx.fill();
 
-        // Live Number Above Bar
-        const liveNum = Math.round(item.val * Math.min(1, Math.max(0, (elapsed - i * 0.15) / 0.65)));
+        const liveNum = Math.round(
+          item.val * Math.min(1, Math.max(0, (elapsed - i * 0.15) / 0.65))
+        );
         ctx.font = `800 ${Math.round(minDim * 0.044)}px Inter, system-ui, sans-serif`;
         ctx.fillStyle = isLast ? theme.accent : textColor;
         ctx.textAlign = "center";
         ctx.fillText(`${liveNum}%`, bx + barW / 2, by - minDim * 0.038);
 
-        // Label Below Bar
         ctx.font = `700 ${Math.round(minDim * 0.036)}px Inter, system-ui, sans-serif`;
         ctx.fillStyle = theme.sub;
         ctx.fillText(item.label, bx + barW / 2, baseY + minDim * 0.05);
@@ -1836,7 +1877,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
   const [videoSeekTick, setVideoSeekTick] = useState(0);
 
   // Assets (Original Video A-Roll + Voiceover Audio + Images)
-  const [sourceVideoAsset, setSourceVideoAsset] = useState(null); // { name, url, duration }
+  const [sourceVideoAsset, setSourceVideoAsset] = useState(null);
   const [useVideoAudio, setUseVideoAudio] = useState(true);
   const sourceVideoElRef = useRef(null);
 
@@ -2032,7 +2073,16 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
       loadedImagesRef.current,
       sourceVideoElRef.current
     );
-  }, [screen, currentTime, parsedRecipe, activeFormat, imageAssets, exporting, sourceVideoAsset, videoSeekTick]);
+  }, [
+    screen,
+    currentTime,
+    parsedRecipe,
+    activeFormat,
+    imageAssets,
+    exporting,
+    sourceVideoAsset,
+    videoSeekTick,
+  ]);
 
   // Playback loop (keeps Original Video + Separate Voiceover synced)
   useEffect(() => {
@@ -2084,7 +2134,14 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [isPlaying, exporting, parsedRecipe.totalDuration, audioAsset, sourceVideoAsset, useVideoAudio]);
+  }, [
+    isPlaying,
+    exporting,
+    parsedRecipe.totalDuration,
+    audioAsset,
+    sourceVideoAsset,
+    useVideoAudio,
+  ]);
 
   // Handle Original Video (A-Roll) Upload
   const handleSourceVideoUpload = (e) => {
@@ -2093,20 +2150,81 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
     const url = URL.createObjectURL(file);
     setSourceVideoAsset({ name: file.name, url, duration: 0 });
     setMixOriginalVideo(true);
-    notify(`Original video "${file.name}" loaded! Use "video" or "pip" scenes to show it between motion graphics.`, "success");
+    notify(
+      `Original video "${file.name}" loaded! Use "video" or "pip" scenes to show it between motion graphics.`,
+      "success"
+    );
     e.target.value = "";
   };
 
   // 1-Click Auto-Mix Original Video Cutaways into existing timeline
   const handleAutoMixVideoCutaways = () => {
     if (parsedRecipe.cues.length === 0) {
-      const dur = sourceVideoAsset?.duration && sourceVideoAsset.duration > 3 ? sourceVideoAsset.duration : 14;
+      const dur =
+        sourceVideoAsset?.duration && sourceVideoAsset.duration > 3
+          ? sourceVideoAsset.duration
+          : 14;
       const sample = [
-        { id: "m1", start: 0, end: 2.8, type: "video", text: "main", sub: "Watch this carefully...", anim: "zoomIn", color: "", size: "large", pos: "center" },
-        { id: "m2", start: 2.8, end: 6.0, type: "search", text: "pro motion graphics", sub: "Step 1", anim: "pop", color: "", size: "large", pos: "center" },
-        { id: "m3", start: 6.0, end: 9.2, type: "pip", text: "Keep Audience Hooked", sub: "Mix face + graphics smoothly", anim: "slideLeft", color: "", size: "large", pos: "center" },
-        { id: "m4", start: 9.2, end: Math.min(dur, 12.5), type: "chart", text: "Engagement Jump", sub: "20,62,40,86,65,98", anim: "fadeUp", color: "", size: "large", pos: "center" },
-        { id: "m5", start: Math.min(dur, 12.5), end: Math.max(15, Math.min(dur, 15.5)), type: "video", text: "main", sub: "Follow for more!", anim: "fadeIn", color: "", size: "large", pos: "center" },
+        {
+          id: "m1",
+          start: 0,
+          end: 2.8,
+          type: "video",
+          text: "main",
+          sub: "Watch this carefully...",
+          anim: "zoomIn",
+          color: "",
+          size: "large",
+          pos: "center",
+        },
+        {
+          id: "m2",
+          start: 2.8,
+          end: 6.0,
+          type: "search",
+          text: "pro motion graphics",
+          sub: "Step 1",
+          anim: "pop",
+          color: "",
+          size: "large",
+          pos: "center",
+        },
+        {
+          id: "m3",
+          start: 6.0,
+          end: 9.2,
+          type: "pip",
+          text: "Keep Audience Hooked",
+          sub: "Mix face + graphics smoothly",
+          anim: "slideLeft",
+          color: "",
+          size: "large",
+          pos: "center",
+        },
+        {
+          id: "m4",
+          start: 9.2,
+          end: Math.min(dur, 12.5),
+          type: "chart",
+          text: "Engagement Jump",
+          sub: "20,62,40,86,65,98",
+          anim: "fadeUp",
+          color: "",
+          size: "large",
+          pos: "center",
+        },
+        {
+          id: "m5",
+          start: Math.min(dur, 12.5),
+          end: Math.max(15, Math.min(dur, 15.5)),
+          type: "video",
+          text: "main",
+          sub: "Follow for more!",
+          anim: "fadeIn",
+          color: "",
+          size: "large",
+          pos: "center",
+        },
       ];
       updateCuesFromTimeline(sample);
       notify("Created a ready Video + Motion hybrid timeline!", "success");
@@ -2385,7 +2503,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
       const canvas = canvasRef.current;
       const ctx = canvas.getContext("2d");
 
-      // Create a fresh off-DOM video element for export (prevents Web Audio reconnect errors)
+      // Fresh off-DOM video element for export (prevents Web Audio reconnect errors)
       if (sourceVideoAsset?.url) {
         exportVideo = document.createElement("video");
         exportVideo.src = sourceVideoAsset.url;
@@ -2935,9 +3053,21 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1 text-xs">
                 {[
-                  { n: "01", t: "Open & Upload", d: "Upload your MP3, WAV, or MP4 file on Riverside.fm." },
-                  { n: "02", t: "Download .SRT / Copy", d: "Choose SRT for exact voice timing, or copy the text." },
-                  { n: "03", t: "Bring It Back Here", d: "Upload the .srt below or tap Take text to open Get code." },
+                  {
+                    n: "01",
+                    t: "Open & Upload",
+                    d: "Upload your MP3, WAV, or MP4 file on Riverside.fm.",
+                  },
+                  {
+                    n: "02",
+                    t: "Download .SRT / Copy",
+                    d: "Choose SRT for exact voice timing, or copy the text.",
+                  },
+                  {
+                    n: "03",
+                    t: "Bring It Back Here",
+                    d: "Upload the .srt below or tap Take text to open Get code.",
+                  },
                 ].map((step) => (
                   <div
                     key={step.n}
@@ -3319,7 +3449,9 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
                       : "bg-white/[0.03] border-white/10 text-slate-400 hover:border-white/25"
                   }`}
                 >
-                  <Icon "w-5 : ? className="{active" h-5 text-amber-400" text-slate-400"}/>
+                  <span className={active ? "text-amber-400" : "text-slate-400"}>
+                    <Icon className="w-5 h-5"/>
+                  </span>
                   <div className="font-extrabold text-sm">{f.name}</div>
                   <div className="text-[11px] opacity-80">{f.desc}</div>
                 </button>
@@ -3624,6 +3756,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
             }
             setVideoSeekTick((t) => t + 1);
           }}
+          onLoadedData={() => setVideoSeekTick((t) => t + 1)}
           onSeeked={() => setVideoSeekTick((t) => t + 1)}
         />
       )}
@@ -4153,8 +4286,8 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
               <div className="p-4 rounded-xl bg-black/35 border border-cyan-400/30 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                    <Video className="w-4 h-4 text-cyan-400"/> Original Video (A-Roll Cutaways &amp;
-                    PiP)
+                    <Video className="w-4 h-4 text-cyan-400"/> Original Video (A-Roll Cutaways
+                    &amp; PiP)
                   </div>
                   {sourceVideoAsset && (
                     <button
