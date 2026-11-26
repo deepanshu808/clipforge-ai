@@ -24,7 +24,6 @@ import {
   Pause,
   Play,
   Plus,
-  RefreshCw,
   RotateCcw,
   RotateCw,
   Save,
@@ -39,7 +38,19 @@ import {
 } from "lucide-react";
 
 const STORAGE_KEY = "clipforge_motion_projects_v1";
-const TRANSCRIBE_URL = "https://aifreeforever.com/tools/free-speech-to-text";
+const TRANSCRIBE_URL = "https://riverside.fm/transcription";
+const DEFAULT_MOTION_BACKEND_URL = "https://clipforge-ai-production-b45ab787.up.railway.app";
+
+function getMotionApiBaseUrl(propUrl) {
+  if (propUrl) return String(propUrl).trim().replace(/\/+$/, "");
+  try {
+    const saved = localStorage.getItem("clipforge_api_base_url");
+    if (saved) return saved.trim().replace(/\/+$/, "");
+  } catch {}
+  const envUrl = import.meta.env.VITE_API_BASE_URL;
+  if (envUrl) return String(envUrl).trim().replace(/\/+$/, "");
+  return DEFAULT_MOTION_BACKEND_URL;
+}
 
 const FORMAT_OPTIONS = [
   { id: "16:9", name: "16:9", desc: "Landscape", width: 1280, height: 720, icon: Monitor },
@@ -75,7 +86,7 @@ const EDIT_STYLES = [
     desc: "Built from images you generate. Few elements, held long enough to read. Needs 5-7 assets before it will render.",
     icon: Layers,
     promptRules:
-      "Include an [ASSETS] section listing 5–7 image asset names and prompts, then reference them in [RECIPE] using `image \"asset_name\"` held for 3–5 seconds alongside crisp cards.",
+      'Include an [ASSETS] section listing 5–7 image asset names and prompts, then reference them in [RECIPE] using `image "asset_name"` held for 3–5 seconds alongside crisp cards.',
   },
   {
     id: "motion_graphics",
@@ -142,7 +153,16 @@ const THEMES = {
   },
 };
 
-const ANIMATIONS = ["fadeUp", "pop", "slideLeft", "slideRight", "zoomIn", "typewriter", "fadeIn", "none"];
+const ANIMATIONS = [
+  "fadeUp",
+  "pop",
+  "slideLeft",
+  "slideRight",
+  "zoomIn",
+  "typewriter",
+  "fadeIn",
+  "none",
+];
 
 const DEMO_TEMPLATES = [
   {
@@ -178,9 +198,23 @@ theme=dark
   },
 ];
 
+function normalizeSmartQuotes(str) {
+  return String(str || "")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2018\u2019]/g, "'");
+}
+
 function hasTimestampsInText(text) {
   if (!text) return false;
-  return /\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d{1,3})?\s*(?:-->|->)\s*\d{1,2}:\d{2}/.test(text);
+  const srtMatch = /\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d{1,3})?\s*(?:-->|->)\s*\d{1,2}:\d{2}/.test(
+    text
+  );
+  if (srtMatch) return true;
+  const lines = text.split(/\r?\n/).map((l) => l.trim());
+  const standaloneCount = lines.filter((l) =>
+    /^\[?\d{1,2}:\d{2}(?::\d{2})?\]?(?:\s+.*)?$/.test(l)
+  ).length;
+  return standaloneCount >= 2;
 }
 
 function parseTimestamp(raw) {
@@ -225,8 +259,8 @@ function parseRecipe(rawText, fallbackTheme = "dark") {
   };
   if (!rawText || !rawText.trim()) return result;
 
-  const lines = rawText
-    .replace(/\r/g, "")
+  const normalized = normalizeSmartQuotes(rawText).replace(/\r/g, "");
+  const lines = normalized
     .split("\n")
     .map((l) => l.trim())
     .filter((l) => l && !l.startsWith("```") && !l.startsWith("#") && !l.startsWith("//"));
@@ -293,7 +327,7 @@ function parseRecipe(rawText, fallbackTheme = "dark") {
     const posMatch = rest.match(/\bpos=(top|center|bottom)/i);
 
     cues.push({
-      id: `cue_${idx}_${Date.now()}`,
+      id: `cue_${idx}_${start}_${end}`,
       start: Number(start.toFixed(2)),
       end: Number(end.toFixed(2)),
       type,
@@ -328,8 +362,26 @@ function serializeCuesToRecipe(cues, theme = "dark") {
   return lines.join("\n");
 }
 
+function splitIntoPunchyChunks(text, maxWords = 8) {
+  const clean = String(text || "").replace(/\s+/g, " ").trim();
+  if (!clean) return [];
+  const sentences = clean.split(/(?<=[.!?।])\s+/).filter(Boolean);
+  const chunks = [];
+  for (const s of sentences) {
+    const words = s.split(/\s+/);
+    if (words.length <= maxWords + 2) {
+      chunks.push(s);
+    } else {
+      for (let i = 0; i < words.length; i += maxWords) {
+        chunks.push(words.slice(i, i + maxWords).join(" "));
+      }
+    }
+  }
+  return chunks;
+}
+
 function buildRecipeFromTranscript(transcript, theme = "neon", editStyleId = "dynamic_no_assets") {
-  const clean = (transcript || "").trim();
+  const clean = normalizeSmartQuotes(transcript || "").trim();
   if (!clean) return DEMO_TEMPLATES[0].code;
 
   const lines = ["v1", `theme=${theme}`];
@@ -338,91 +390,11 @@ function buildRecipeFromTranscript(transcript, theme = "neon", editStyleId = "dy
   const animCycle = isMotion
     ? ["pop", "slideLeft", "zoomIn", "slideRight", "fadeUp"]
     : ["fadeUp", "pop", "zoomIn", "slideLeft", "typewriter"];
-
-  const srtBlocks = clean.split(/\r?\n\r?\n/);
-  const srtTimeRe =
-    /(\d{1,2}:\d{2}:\d{2}[.,]\d{1,3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[.,]\d{1,3})/;
-
-  let foundSrt = false;
-  let cueCount = 0;
-
-  for (const block of srtBlocks) {
-    const blines = block
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter(Boolean);
-    const timeLineIdx = blines.findIndex((l) => srtTimeRe.test(l));
-    if (timeLineIdx !== -1) {
-      foundSrt = true;
-      const m = blines[timeLineIdx].match(srtTimeRe);
-      const start = parseTimestamp(m[1]);
-      const end = Math.max(start + 1.0, parseTimestamp(m[2]));
-      const text = blines
-        .slice(timeLineIdx + 1)
-        .join(" ")
-        .replace(/<[^>]+>/g, "")
-        .replace(/"/g, "'")
-        .trim();
-      if (!text) continue;
-
-      const anim = animCycle[cueCount % animCycle.length];
-      const hasNumber = /\d+%|\₹\d+|\$\d+|\d+x/i.test(text);
-      const cueType =
-        cueCount === 0
-          ? "badge"
-          : hasNumber
-          ? "stat"
-          : isMotion && cueCount % 2 === 1
-          ? "card"
-          : cueCount % 4 === 3
-          ? "card"
-          : "text";
-
-      if (cueType === "badge") {
-        lines.push(
-          `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} badge "HIGHLIGHT" sub="${text}" in=${anim}`
-        );
-      } else {
-        lines.push(
-          `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} ${cueType} "${text}" in=${anim}`
-        );
-      }
-      cueCount++;
-    }
-  }
-
-  if (foundSrt && cueCount > 0) {
-    return lines.join("\n");
-  }
-
-  const sentences = clean
-    .replace(/\r/g, " ")
-    .split(/(?<=[.!?।])\s+|\n+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-
   const maxWordsPerChunk = isFast ? 6 : 8;
-  const chunks = [];
-  for (const s of sentences) {
-    const words = s.split(/\s+/);
-    if (words.length <= maxWordsPerChunk + 2) {
-      chunks.push(s);
-    } else {
-      for (let i = 0; i < words.length; i += maxWordsPerChunk) {
-        chunks.push(words.slice(i, i + maxWordsPerChunk).join(" "));
-      }
-    }
-  }
 
-  let cursor = 0;
-  chunks.slice(0, 30).forEach((chunk, idx) => {
-    const pace = isFast ? 0.32 : 0.38;
-    const dur = Math.min(4.0, Math.max(1.8, chunk.split(/\s+/).length * pace));
-    const start = cursor;
-    const end = cursor + dur;
-    cursor = end;
-
-    const safe = chunk.replace(/"/g, "'");
+  const pushCue = (start, end, text, idx) => {
+    const safe = String(text || "").replace(/"/g, "'").trim();
+    if (!safe || /^\d{1,2}:\d{2}(?::\d{2})?$/.test(safe)) return;
     const anim = animCycle[idx % animCycle.length];
     const hasStat = /\d+%|\₹\d+|\$\d+|\d+x/i.test(safe);
     if (idx === 0) {
@@ -430,12 +402,106 @@ function buildRecipeFromTranscript(transcript, theme = "neon", editStyleId = "dy
         `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} badge "WATCH THIS" sub="${safe}" in=pop`
       );
     } else if (hasStat) {
-      lines.push(`${formatRecipeTime(start)} --> ${formatRecipeTime(end)} stat "${safe}" in=zoomIn`);
-    } else if (idx === chunks.length - 1 || (isMotion ? idx % 2 === 1 : idx % 4 === 3)) {
-      lines.push(`${formatRecipeTime(start)} --> ${formatRecipeTime(end)} card "${safe}" in=${anim}`);
+      lines.push(
+        `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} stat "${safe}" in=zoomIn`
+      );
+    } else if (isMotion ? idx % 2 === 1 : idx % 4 === 3) {
+      lines.push(
+        `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} card "${safe}" in=${anim}`
+      );
     } else {
-      lines.push(`${formatRecipeTime(start)} --> ${formatRecipeTime(end)} text "${safe}" in=${anim}`);
+      lines.push(
+        `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} text "${safe}" in=${anim}`
+      );
     }
+  };
+
+  // 1. Standard SRT / VTT range format
+  const srtBlocks = clean.split(/\r?\n\r?\n/);
+  const srtTimeRe =
+    /(\d{1,2}:\d{2}(?::\d{2})?[.,]\d{1,3})\s*-->\s*(\d{1,2}:\d{2}(?::\d{2})?[.,]\d{1,3})/;
+
+  let cueCount = 0;
+  for (const block of srtBlocks) {
+    const blines = block
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const timeLineIdx = blines.findIndex((l) => srtTimeRe.test(l));
+    if (timeLineIdx !== -1) {
+      const m = blines[timeLineIdx].match(srtTimeRe);
+      const start = parseTimestamp(m[1]);
+      const end = Math.max(start + 1.0, parseTimestamp(m[2]));
+      const text = blines
+        .slice(timeLineIdx + 1)
+        .join(" ")
+        .replace(/<[^>]+>/g, "")
+        .trim();
+      if (!text) continue;
+      pushCue(start, end, text, cueCount);
+      cueCount++;
+    }
+  }
+  if (cueCount > 0) return lines.join("\n");
+
+  // 2. YouTube / Riverside / Whisper standalone MM:SS timestamped format
+  const rawLines = clean
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const standaloneTsRe = /^\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?(?:\s+[-–—:]?\s*(.*))?$/;
+  const timedSections = [];
+  for (const rl of rawLines) {
+    const m = rl.match(standaloneTsRe);
+    if (m) {
+      timedSections.push({
+        start: parseTimestamp(m[1]),
+        textParts: m[2] ? [m[2].trim()] : [],
+      });
+    } else if (timedSections.length > 0) {
+      timedSections[timedSections.length - 1].textParts.push(rl);
+    }
+  }
+
+  if (timedSections.length >= 2) {
+    let idx = 0;
+    timedSections.forEach((sec, sIdx) => {
+      const combinedText = sec.textParts.join(" ").trim();
+      const chunks = splitIntoPunchyChunks(combinedText, maxWordsPerChunk);
+      if (chunks.length === 0) return;
+
+      const nextStart =
+        sIdx + 1 < timedSections.length
+          ? Math.max(sec.start + chunks.length * 1.6, timedSections[sIdx + 1].start)
+          : sec.start + Math.max(2.5, chunks.length * 2.8);
+      const totalSpan = Math.max(1.5, nextStart - sec.start);
+      const perChunk = totalSpan / chunks.length;
+
+      chunks.forEach((chunk, cIdx) => {
+        const cStart = sec.start + cIdx * perChunk;
+        const cEnd = sec.start + (cIdx + 1) * perChunk;
+        pushCue(cStart, cEnd, chunk, idx);
+        idx++;
+      });
+    });
+    if (idx > 0) return lines.join("\n");
+  }
+
+  // 3. Plain text transcript
+  const cleanedPlain = rawLines
+    .filter((l) => !/^\[?\d{1,2}:\d{2}(?::\d{2})?\]?$/.test(l))
+    .join(" ");
+  const chunks = splitIntoPunchyChunks(cleanedPlain, maxWordsPerChunk);
+
+  let cursor = 0;
+  chunks.slice(0, 40).forEach((chunk, idx) => {
+    const pace = isFast ? 0.32 : 0.38;
+    const dur = Math.min(4.0, Math.max(1.8, chunk.split(/\s+/).length * pace));
+    const start = cursor;
+    const end = cursor + dur;
+    cursor = end;
+    pushCue(start, end, chunk, idx);
   });
 
   return lines.join("\n");
@@ -456,7 +522,7 @@ PROJECT SETTINGS:
 - Style Direction: ${styleObj.promptRules}
 - Timing Mode: ${
     synced
-      ? "EXACT SRT TIMESTAMPS PROVIDED — keep animations tightly synced to the given timestamps."
+      ? "EXACT TIMESTAMPS PROVIDED — keep animations tightly synced to the given timestamps."
       : "No timestamps provided — pace each visual beat naturally at 2.2s–3.5s per punchy line."
   }
 
@@ -816,7 +882,7 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
   ctx.fillRect(0, height - 6, width * progress, 6);
 }
 
-export default function MotionEditor({ projects = [], showToast }) {
+export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
   // Screens: home | workspace | get_code | get_transcript
   const [screen, setScreen] = useState("home");
 
@@ -843,11 +909,11 @@ export default function MotionEditor({ projects = [], showToast }) {
   const [history, setHistory] = useState([]);
   const [future, setFuture] = useState([]);
 
-  // Playback State
+  // Playback & Export State
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [exportPercent, setExportPercent] = useState(0);
+  const [exportLabel, setExportLabel] = useState("");
 
   // Assets (Images + Voiceover Audio)
   const [imageAssets, setImageAssets] = useState([]);
@@ -855,9 +921,8 @@ export default function MotionEditor({ projects = [], showToast }) {
   const [audioAsset, setAudioAsset] = useState(null);
   const audioElRef = useRef(null);
 
-  // Get Transcript (In-App Embedded + Confirm Modal)
-  const [transcriptTab, setTranscriptTab] = useState("embed"); // embed | mic | clips
-  const [iframeKey, setIframeKey] = useState(0);
+  // Get Transcript (Riverside + Confirm Modal)
+  const [transcriptTab, setTranscriptTab] = useState("riverside"); // riverside | mic | clips
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
   const [pendingTranscript, setPendingTranscript] = useState("");
 
@@ -898,8 +963,9 @@ export default function MotionEditor({ projects = [], showToast }) {
 
   const allClipForgeClips = useMemo(() => {
     const out = [];
+    if (!Array.isArray(projects)) return out;
     projects.forEach((p) => {
-      if (Array.isArray(p.clips)) {
+      if (Array.isArray(p?.clips)) {
         p.clips.forEach((c) => {
           out.push({
             id: c.id,
@@ -916,6 +982,23 @@ export default function MotionEditor({ projects = [], showToast }) {
   const notify = (msg, type = "info") => {
     if (showToast) showToast(msg, type);
   };
+
+  // Stop mic recognition & animation loops cleanly on unmount
+  useEffect(() => {
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch {}
+      }
+      if (audioElRef.current) {
+        try {
+          audioElRef.current.pause();
+        } catch {}
+      }
+    };
+  }, []);
 
   // Persist Recent Projects
   const saveProjectToRecents = (override = {}) => {
@@ -1005,9 +1088,9 @@ export default function MotionEditor({ projects = [], showToast }) {
     loadedImagesRef.current = map;
   }, [imageAssets]);
 
-  // Render canvas frame
+  // Render canvas frame when idle/previewing
   useEffect(() => {
-    if (screen !== "workspace" || !canvasRef.current) return;
+    if (screen !== "workspace" || exporting || !canvasRef.current) return;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -1019,7 +1102,7 @@ export default function MotionEditor({ projects = [], showToast }) {
       parsedRecipe,
       loadedImagesRef.current
     );
-  }, [screen, currentTime, parsedRecipe, activeFormat, imageAssets]);
+  }, [screen, currentTime, parsedRecipe, activeFormat, imageAssets, exporting]);
 
   // Playback loop
   useEffect(() => {
@@ -1070,9 +1153,7 @@ export default function MotionEditor({ projects = [], showToast }) {
           setConfirmModalOpen(true);
           return;
         }
-      } catch {
-        // Clipboard permission denied — open sheet so user can paste manually
-      }
+      } catch {}
     }
     setPendingTranscript(transcriptInput || "");
     setConfirmModalOpen(true);
@@ -1081,7 +1162,6 @@ export default function MotionEditor({ projects = [], showToast }) {
     }
   };
 
-  // Save transcript text as .srt or .txt file
   const handleSaveTranscriptFile = (text) => {
     if (!text.trim()) return;
     const isSrt = hasTimestampsInText(text);
@@ -1095,7 +1175,6 @@ export default function MotionEditor({ projects = [], showToast }) {
     notify(`Saved as clipforge_transcript.${isSrt ? "srt" : "txt"}`, "success");
   };
 
-  // Confirm transcript -> auto-redirect straight to Get Code
   const handleConfirmUseTranscript = () => {
     if (!pendingTranscript.trim()) {
       notify("Please paste or enter your transcript first.", "error");
@@ -1109,7 +1188,6 @@ export default function MotionEditor({ projects = [], showToast }) {
     notify("Transcript loaded! Pick your format & style, then tap Get Prompt.", "success");
   };
 
-  // Download generated prompt as .txt (ideal for mobile Claude/ChatGPT attachment)
   const handleSavePromptTxt = () => {
     if (!generatedPrompt) return;
     const blob = new Blob([generatedPrompt], { type: "text/plain;charset=utf-8" });
@@ -1122,7 +1200,6 @@ export default function MotionEditor({ projects = [], showToast }) {
     notify("Prompt saved as .txt! Attach it in Claude, ChatGPT, or Gemini.", "success");
   };
 
-  // Paste AI code from clipboard directly into Workspace -> Code tab
   const handlePasteCodeFromClipboard = async () => {
     if (!navigator.clipboard?.readText) {
       notify("Paste directly into the code box below using Ctrl+V / Long-press Paste.", "info");
@@ -1265,7 +1342,7 @@ export default function MotionEditor({ projects = [], showToast }) {
     e.target.value = "";
   };
 
-  // Free Browser Canvas Video Export (Supports 30fps & 60fps + Audio Sync)
+  // Smooth Lag-Free Capture + Universal H.264 MP4 Conversion
   const handleExportVideo = async () => {
     if (!canvasRef.current || parsedRecipe.cues.length === 0) {
       notify("Apply a motion recipe before exporting.", "error");
@@ -1278,45 +1355,99 @@ export default function MotionEditor({ projects = [], showToast }) {
 
     setIsPlaying(false);
     setExporting(true);
-    setExportPercent(0);
+    setExportLabel("Recording 0%");
+
+    const baseSlug =
+      projectTitle.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") ||
+      "clipforge_motion";
+
+    const triggerDownload = (blob, filename) => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    };
 
     try {
       const canvas = canvasRef.current;
       const ctx = canvas.getContext("2d");
+
+      renderMotionFrame(
+        ctx,
+        activeFormat.width,
+        activeFormat.height,
+        0,
+        parsedRecipe,
+        loadedImagesRef.current
+      );
+
       const videoStream = canvas.captureStream(fps);
       const tracks = [...videoStream.getVideoTracks()];
+      let hasAudioTrack = false;
 
       let audioCtx = null;
       let tempAudio = null;
       if (audioAsset?.url) {
         try {
           audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          if (audioCtx.state === "suspended") await audioCtx.resume();
           tempAudio = new Audio(audioAsset.url);
           tempAudio.crossOrigin = "anonymous";
+          await new Promise((res) => {
+            tempAudio.oncanplaythrough = res;
+            tempAudio.onerror = res;
+            setTimeout(res, 1500);
+          });
           const source = audioCtx.createMediaElementSource(tempAudio);
           const dest = audioCtx.createMediaStreamDestination();
           source.connect(dest);
-          source.connect(audioCtx.destination);
-          dest.stream.getAudioTracks().forEach((t) => tracks.push(t));
+          const aTracks = dest.stream.getAudioTracks();
+          if (aTracks.length > 0) {
+            aTracks.forEach((t) => tracks.push(t));
+            hasAudioTrack = true;
+          }
         } catch {
           tempAudio = null;
+          hasAudioTrack = false;
         }
       }
 
       const combinedStream = new MediaStream(tracks);
-      const mimeTypes = [
-        "video/webm;codecs=vp9,opus",
-        "video/webm;codecs=vp8,opus",
-        "video/webm;codecs=vp9",
-        "video/webm",
-      ];
-      const chosenMime = mimeTypes.find((m) => MediaRecorder.isTypeSupported(m)) || "";
-      const recorder = chosenMime
-        ? new MediaRecorder(combinedStream, {
-            mimeType: chosenMime,
-            videoBitsPerSecond: fps === 60 ? 6500000 : 4500000,
-          })
-        : new MediaRecorder(combinedStream);
+
+      const mimeCandidates = hasAudioTrack
+        ? [
+            "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+            "video/webm;codecs=vp8,opus",
+            "video/webm;codecs=vp9,opus",
+            "video/webm",
+          ]
+        : [
+            "video/mp4;codecs=avc1.42E01E",
+            "video/webm;codecs=vp8",
+            "video/webm;codecs=vp9",
+            "video/webm",
+          ];
+
+      const chosenMime =
+        typeof MediaRecorder.isTypeSupported === "function"
+          ? mimeCandidates.find((m) => MediaRecorder.isTypeSupported(m)) || ""
+          : "";
+
+      const recorderOptions = {
+        videoBitsPerSecond: fps === 60 ? 5500000 : 4000000,
+      };
+      if (chosenMime) recorderOptions.mimeType = chosenMime;
+
+      let recorder;
+      try {
+        recorder = new MediaRecorder(combinedStream, recorderOptions);
+      } catch {
+        recorder = new MediaRecorder(combinedStream);
+      }
 
       const chunks = [];
       recorder.ondataavailable = (evt) => {
@@ -1327,14 +1458,17 @@ export default function MotionEditor({ projects = [], showToast }) {
         recorder.onstop = () => resolve();
       });
 
-      recorder.start(200);
+      recorder.start(1000);
+      await new Promise((r) => setTimeout(r, 80));
+
       if (tempAudio) {
         tempAudio.currentTime = 0;
         tempAudio.play().catch(() => {});
       }
 
-      const totalDur = parsedRecipe.totalDuration;
+      const totalDur = Math.max(1, parsedRecipe.totalDuration);
       const startWall = performance.now();
+      let lastUiUpdate = 0;
 
       await new Promise((resolve) => {
         const step = (now) => {
@@ -1348,7 +1482,11 @@ export default function MotionEditor({ projects = [], showToast }) {
             parsedRecipe,
             loadedImagesRef.current
           );
-          setExportPercent(Math.min(99, Math.round((clamped / totalDur) * 100)));
+          if (now - lastUiUpdate >= 250 || clamped >= totalDur) {
+            lastUiUpdate = now;
+            const pct = Math.min(99, Math.round((clamped / totalDur) * 100));
+            setExportLabel(`Recording ${pct}%`);
+          }
           if (t < totalDur) {
             requestAnimationFrame(step);
           } else {
@@ -1358,35 +1496,72 @@ export default function MotionEditor({ projects = [], showToast }) {
         requestAnimationFrame(step);
       });
 
+      await new Promise((r) => setTimeout(r, 180));
       if (tempAudio) tempAudio.pause();
       if (recorder.state !== "inactive") recorder.stop();
       await donePromise;
+      videoStream.getTracks().forEach((t) => t.stop());
       if (audioCtx) audioCtx.close().catch(() => {});
 
-      const blob = new Blob(chunks, { type: chosenMime || "video/webm" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${projectTitle.toLowerCase().replace(/[^a-z0-9]+/g, "_") || "clipforge_motion"}_${fps}fps.webm`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      const actualMime = recorder.mimeType || chosenMime || "video/webm";
+      const rawBlob = new Blob(chunks, { type: actualMime });
+      if (!rawBlob || rawBlob.size === 0) {
+        throw new Error("Recorded video was empty. Keep this tab open while exporting.");
+      }
 
-      setExportPercent(100);
-      notify(`Motion video (${fps}fps) exported & downloaded! (100% Free)`, "success");
+      setExportLabel("Converting to MP4...");
+      const mp4Name = `${baseSlug}_${fps}fps.mp4`;
+      try {
+        const backendUrl = getMotionApiBaseUrl(apiBaseUrl);
+        const fd = new FormData();
+        fd.append("file", rawBlob, `${baseSlug}.webm`);
+        fd.append("fps", String(fps));
+        fd.append("filename", mp4Name);
+
+        const resp = await fetch(`${backendUrl}/api/motion/export-mp4`, {
+          method: "POST",
+          body: fd,
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+        const mp4Blob = await resp.blob();
+        if (mp4Blob.size > 0) {
+          triggerDownload(mp4Blob, mp4Name);
+          notify(`Universal MP4 (${fps}fps) downloaded! Playable on all phones & apps.`, "success");
+          return;
+        }
+        throw new Error("Empty MP4 returned");
+      } catch {
+        const isNativeMp4 = actualMime.includes("mp4");
+        triggerDownload(rawBlob, `${baseSlug}_${fps}fps.${isNativeMp4 ? "mp4" : "webm"}`);
+        notify(
+          isNativeMp4
+            ? `MP4 (${fps}fps) exported & downloaded!`
+            : `Video downloaded (${fps}fps). Ensure backend is online for universal MP4 conversion.`,
+          "info"
+        );
+      }
     } catch (err) {
-      notify(err?.message || "Export failed. Please try again in Chrome/Edge.", "error");
+      notify(err?.message || "Export failed. Keep this tab open and try again.", "error");
     } finally {
       setExporting(false);
+      setExportLabel("");
     }
   };
 
-  const handleTranscriptUpload = (e) => {
+  const handleTranscriptUpload = (e, goToGetCode = false) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-      setTranscriptInput(String(reader.result || ""));
+      const content = String(reader.result || "");
+      setTranscriptInput(content);
       notify(`Loaded ${file.name}!`, "success");
+      if (goToGetCode && content.trim()) {
+        setGeneratedPrompt("");
+        setShowPromptBox(false);
+        setScreen("get_code");
+      }
     };
     reader.readAsText(file);
     e.target.value = "";
@@ -1467,7 +1642,7 @@ export default function MotionEditor({ projects = [], showToast }) {
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Turn any transcript into a kinetic motion edit — zero credits used
+                Turn any transcript into a kinetic MP4 motion edit — zero credits used
               </p>
             </div>
           </div>
@@ -1487,8 +1662,8 @@ export default function MotionEditor({ projects = [], showToast }) {
               <div>
                 <div className="font-extrabold text-base">I have code</div>
                 <div className="text-xs text-slate-600 mt-0.5 leading-relaxed">
-                  Paste a recipe from Claude, ChatGPT, or Gemini, preview it live, and fine-tune
-                  the timeline.
+                  Paste a recipe from Claude, ChatGPT, or Gemini, preview it live, and export as
+                  universal MP4.
                 </div>
               </div>
             </div>
@@ -1516,7 +1691,7 @@ export default function MotionEditor({ projects = [], showToast }) {
 
           <button
             onClick={() => {
-              setTranscriptTab("embed");
+              setTranscriptTab("riverside");
               setScreen("get_transcript");
             }}
             className="w-full text-left p-5 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 transition flex items-center justify-between gap-4"
@@ -1528,8 +1703,8 @@ export default function MotionEditor({ projects = [], showToast }) {
               <div>
                 <div className="font-bold text-base text-white">Get transcript</div>
                 <div className="text-xs text-slate-400 mt-0.5 leading-relaxed">
-                  No transcript yet? Upload your audio to a free transcriber right inside this app
-                  — without leaving ClipForge AI.
+                  No transcript yet? Open Riverside.fm free transcription, upload .srt, dictate
+                  live, or import from your clips.
                 </div>
               </div>
             </div>
@@ -1613,61 +1788,48 @@ export default function MotionEditor({ projects = [], showToast }) {
   }
 
   // =========================================================================
-  // RENDER 2: GET TRANSCRIPT (IN-APP EMBEDDED TRANSCRIBER + TAKE TEXT BAR)
+  // RENDER 2: GET TRANSCRIPT (RIVERSIDE.FM FREE TRANSCRIPTION + TAKE TEXT)
   // =========================================================================
   if (screen === "get_transcript") {
     return (
-      <div className="max-w-4xl mx-auto space-y-3 relative">
-        {/* Top In-App Browser Header */}
+      <div className="max-w-3xl mx-auto space-y-4 relative">
         <div className="p-3 rounded-2xl bg-[#0d0d1a] border border-white/15 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={() => setScreen("home")}
               className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 shrink-0"
-              title="Close"
+              title="Back"
             >
-              <X className="w-4 h-4"/>
+              <ArrowLeft className="w-4 h-4"/>
             </button>
             <div className="min-w-0">
-              <div className="font-extrabold text-sm text-white truncate">aifreeforever.com</div>
+              <div className="font-extrabold text-sm text-white truncate">Get transcript</div>
               <div className="text-[11px] text-slate-400 truncate">
-                Upload audio → select Subtitles (SRT) → copy output → tap Take text below
+                Free transcription via Riverside.fm, live mic, or your ClipForge clips
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 shrink-0">
-            <button
-              onClick={() => setIframeKey((k) => k + 1)}
-              className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300"
-              title="Reload transcriber"
-            >
-              <RefreshCw className="w-4 h-4"/>
-            </button>
-            <button
-              onClick={() => {
-                window.open(
-                  TRANSCRIBE_URL,
-                  "clipforge_transcriber",
-                  "width=480,height=760,noopener,noreferrer"
-                );
-              }}
-              className="px-2.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-cyan-300 flex items-center gap-1"
-              title="Open in side popup if iframe is blocked"
-            >
-              <ExternalLink className="w-3.5 h-3.5"/>
-              <span className="hidden sm:inline">Popup</span>
-            </button>
-          </div>
+          <button
+            onClick={() => setScreen("get_code")}
+            className="text-xs text-amber-300 font-semibold hover:underline shrink-0"
+          >
+            Next: Get Code →
+          </button>
         </div>
 
-        {/* Source Switcher Pills */}
         <div className="flex flex-wrap gap-2">
           {[
-            { id: "embed", label: "In-App Speech to Text (Whisper)", icon: Sparkles },
+            { id: "riverside", label: "Riverside.fm (Free)", icon: Sparkles },
             { id: "mic", label: "Live Mic / Manual Paste", icon: Mic },
             ...(allClipForgeClips.length > 0
-              ? [{ id: "clips", label: `My ClipForge Clips (${allClipForgeClips.length})`, icon: Film }]
+              ? [
+                  {
+                    id: "clips",
+                    label: `My ClipForge Clips (${allClipForgeClips.length})`,
+                    icon: Film,
+                  },
+                ]
               : []),
           ].map((tab) => {
             const Icon = tab.icon;
@@ -1688,34 +1850,82 @@ export default function MotionEditor({ projects = [], showToast }) {
           })}
         </div>
 
-        {/* Body Area */}
-        {transcriptTab === "embed" && (
-          <div className="rounded-2xl overflow-hidden border border-white/15 bg-[#090914] space-y-0">
-            <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-400/25 text-[11px] text-amber-200 flex flex-wrap items-center justify-between gap-2">
-              <span>
-                <strong>Quick Tip:</strong> Pick <strong>Subtitles (SRT)</strong> for exact timing,
-                copy the generated text, then tap the orange <strong>Take text</strong> button below.
-              </span>
-              <button
-                onClick={() =>
-                  window.open(
-                    TRANSCRIBE_URL,
-                    "clipforge_transcriber",
-                    "width=480,height=760,noopener,noreferrer"
-                  )
-                }
-                className="underline text-amber-300 font-bold"
+        {transcriptTab === "riverside" && (
+          <div className="space-y-4">
+            {/* Direct Riverside.fm Launch Card */}
+            <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-br from-violet-900/30 via-[#0e0e1d] to-amber-900/20 border border-amber-400/35 space-y-4 shadow-xl">
+              <div className="space-y-1.5">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-400/30 text-amber-300 text-[11px] font-bold">
+                  <Sparkles className="w-3.5 h-3.5"/> riverside.fm/transcription
+                </div>
+                <h3 className="text-lg font-extrabold text-white">
+                  Free Audio &amp; Video Transcription (SRT / TXT)
+                </h3>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  Click the button below to open Riverside.fm free transcription. Upload your audio
+                  or video, download the <strong>.SRT</strong> file (or copy the transcript), then
+                  upload or paste it right here.
+                </p>
+              </div>
+
+              <a
+                href={TRANSCRIBE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-3.5 px-5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:opacity-95 text-black font-extrabold text-sm flex items-center justify-center gap-2 shadow-lg shadow-amber-500/25 transition"
               >
-                Not loading? Open Popup ↗
-              </button>
+                Open Free Transcription (Riverside.fm)
+                <ExternalLink className="w-4 h-4"/>
+              </a>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1 text-xs">
+                {[
+                  {
+                    n: "01",
+                    t: "Open & Upload",
+                    d: "Upload your MP3, WAV, or MP4 file on Riverside.fm.",
+                  },
+                  {
+                    n: "02",
+                    t: "Download .SRT / Copy",
+                    d: "Choose SRT for exact voice timing, or copy the text.",
+                  },
+                  {
+                    n: "03",
+                    t: "Bring It Back Here",
+                    d: "Upload the .srt below or tap Take text to open Get code.",
+                  },
+                ].map((step) => (
+                  <div
+                    key={step.n}
+                    className="p-3 rounded-xl bg-black/40 border border-white/10 space-y-1"
+                  >
+                    <span className="text-[10px] font-mono font-bold text-amber-400">
+                      STEP {step.n}
+                    </span>
+                    <div className="font-bold text-white">{step.t}</div>
+                    <div className="text-[11px] text-slate-400 leading-relaxed">{step.d}</div>
+                  </div>
+                ))}
+              </div>
             </div>
-            <iframe
-              key={iframeKey}
-              src={TRANSCRIBE_URL}
-              title="Free Speech to Text Transcriber"
-              allow="microphone; clipboard-read; clipboard-write"
-              className="w-full h-[540px] sm:h-[600px] bg-[#0b0b18]"
-            />
+
+            {/* Direct Upload .SRT / .TXT Box */}
+            <div className="p-5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-3">
+              <div className="font-bold text-sm text-white">
+                Already downloaded your .SRT or .TXT from Riverside?
+              </div>
+              <label className="w-full py-3.5 px-4 rounded-xl bg-white/5 hover:bg-white/10 border border-dashed border-amber-400/45 text-amber-300 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition">
+                <Upload className="w-4 h-4"/>
+                Upload Riverside Transcript (.srt or .txt) &amp; Continue →
+                <input
+                  type="file"
+                  accept=".txt,.srt,.vtt"
+                  className="hidden"
+                  onChange={(e) => handleTranscriptUpload(e, true)}
+                />
+              </label>
+            </div>
           </div>
         )}
 
@@ -1747,7 +1957,7 @@ export default function MotionEditor({ projects = [], showToast }) {
                     type="file"
                     accept=".txt,.srt,.vtt"
                     className="hidden"
-                    onChange={handleTranscriptUpload}
+                    onChange={(e) => handleTranscriptUpload(e, false)}
                   />
                 </label>
               </div>
@@ -1786,7 +1996,7 @@ export default function MotionEditor({ projects = [], showToast }) {
           </div>
         )}
 
-        {/* Sticky Bottom Action Bar (Exact Take text + Paste Flow) */}
+        {/* Sticky Bottom Action Bar */}
         <div className="sticky bottom-3 z-20 p-3 rounded-2xl bg-[#0c0c18]/95 backdrop-blur-xl border border-white/15 shadow-2xl flex items-center justify-between gap-3">
           <button
             onClick={() => setScreen("home")}
@@ -1845,8 +2055,8 @@ export default function MotionEditor({ projects = [], showToast }) {
                 <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-400/35 text-xs text-emerald-200 flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0"/>
                   <span>
-                    <strong>SRT timestamps detected!</strong> Your motion animations will sync to
-                    your voiceover.
+                    <strong>Timestamps detected!</strong> Your motion animations will sync cleanly
+                    to your voiceover.
                   </span>
                 </div>
               ) : null}
@@ -1916,7 +2126,7 @@ export default function MotionEditor({ projects = [], showToast }) {
         <div className="p-5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-2 text-xs text-slate-300">
           <div className="font-bold text-sm text-white">How this works</div>
           <ol className="space-y-1 list-decimal list-inside leading-relaxed">
-            <li>Add your transcript below (or grab one from Get transcript).</li>
+            <li>Add your transcript below (or grab one from Riverside.fm in Get transcript).</li>
             <li>Pick your aspect ratio, frame rate (30 / 60 fps), and edit style.</li>
             <li>
               Tap <strong>Get Prompt</strong> — we bundle all editing rules, animation vocabulary,
@@ -1925,7 +2135,7 @@ export default function MotionEditor({ projects = [], showToast }) {
             <li>Paste or attach that in Claude, ChatGPT, or Gemini. It returns the code.</li>
             <li>
               Tap <strong>Open the editor</strong>, paste the code into &quot;I have code&quot;, and
-              preview or export free!
+              preview or export as universal MP4 for free!
             </li>
           </ol>
         </div>
@@ -1940,15 +2150,14 @@ export default function MotionEditor({ projects = [], showToast }) {
                 For a better experience, upload 30-second chunks or an .srt file for voice sync.
               </div>
             </div>
-            <button
-              onClick={() => {
-                setTranscriptTab("embed");
-                setScreen("get_transcript");
-              }}
-              className="text-xs text-cyan-300 font-semibold hover:underline"
+            <a
+              href={TRANSCRIBE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-cyan-300 font-semibold hover:underline inline-flex items-center gap-1"
             >
-              Need transcript? Open Transcriber →
-            </button>
+              Open Free Transcription (Riverside.fm) <ExternalLink className="w-3 h-3"/>
+            </a>
           </div>
 
           {transcriptInput.trim() && !transcriptHasTiming && (
@@ -1984,7 +2193,7 @@ export default function MotionEditor({ projects = [], showToast }) {
                 type="file"
                 accept=".txt,.srt,.vtt"
                 className="hidden"
-                onChange={handleTranscriptUpload}
+                onChange={(e) => handleTranscriptUpload(e, false)}
               />
             </label>
 
@@ -2059,7 +2268,7 @@ export default function MotionEditor({ projects = [], showToast }) {
           </div>
         </div>
 
-        {/* Edit Style Selector (All 5 Styles) */}
+        {/* Edit Style Selector */}
         <div className="space-y-2.5">
           <div className="flex items-center justify-between">
             <div className="text-sm font-bold text-white">Edit style</div>
@@ -2163,15 +2372,16 @@ export default function MotionEditor({ projects = [], showToast }) {
               }
               const autoCode = buildRecipeFromTranscript(transcriptInput, themeId, editStyleId);
               const newId = `motion_${Date.now()}`;
-              const title =
+              const cleanTitle =
                 transcriptInput
-                  .replace(/\d+:\d+[^\n]*/g, "")
+                  .replace(/\[?\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d+)?\]?/g, "")
+                  .replace(/-->/g, "")
                   .trim()
                   .split(/\s+/)
                   .slice(0, 5)
                   .join(" ") || "Auto Motion Edit";
               setProjectId(newId);
-              setProjectTitle(title);
+              setProjectTitle(cleanTitle);
               setRecipeDraft(autoCode);
               setAppliedRecipe(autoCode);
               setCurrentTime(0);
@@ -2181,7 +2391,7 @@ export default function MotionEditor({ projects = [], showToast }) {
               setIsPlaying(true);
               saveProjectToRecents({
                 id: newId,
-                title,
+                title: cleanTitle,
                 formatId,
                 fps,
                 themeId,
@@ -2225,7 +2435,6 @@ export default function MotionEditor({ projects = [], showToast }) {
               Save and attach the .txt in Claude / ChatGPT — or copy &amp; open directly below:
             </p>
 
-            {/* Quick Copy + Direct AI Launch Links */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <button
                 type="button"
@@ -2237,13 +2446,17 @@ export default function MotionEditor({ projects = [], showToast }) {
                 }}
                 className="py-2.5 px-3 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-xs font-bold text-white flex items-center justify-center gap-1.5"
               >
-                {copiedPrompt ? <Check className="w-3.5 h-3.5 text-emerald-400"/> : <Copy className="w-3.5 h-3.5"/>}
+                {copiedPrompt ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-400"/>
+                ) : (
+                  <Copy className="w-3.5 h-3.5"/>
+                )}
                 {copiedPrompt ? "Copied" : "Copy Text"}
               </button>
               <a
                 href="[https://claude.ai/new](https://claude.ai/new)"
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
                 className="py-2.5 px-3 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/30 text-amber-200 text-xs font-bold flex items-center justify-center gap-1"
               >
                 Claude <ExternalLink className="w-3 h-3"/>
@@ -2251,7 +2464,7 @@ export default function MotionEditor({ projects = [], showToast }) {
               <a
                 href="[https://chatgpt.com/](https://chatgpt.com/)"
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
                 className="py-2.5 px-3 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/30 text-emerald-200 text-xs font-bold flex items-center justify-center gap-1"
               >
                 ChatGPT <ExternalLink className="w-3 h-3"/>
@@ -2259,7 +2472,7 @@ export default function MotionEditor({ projects = [], showToast }) {
               <a
                 href="[https://gemini.google.com/app](https://gemini.google.com/app)"
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
                 className="py-2.5 px-3 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/30 text-cyan-200 text-xs font-bold flex items-center justify-center gap-1"
               >
                 Gemini <ExternalLink className="w-3 h-3"/>
@@ -2272,7 +2485,9 @@ export default function MotionEditor({ projects = [], showToast }) {
               className="w-full py-2.5 rounded-xl bg-black/40 hover:bg-black/60 border border-white/10 text-amber-300 text-xs font-bold flex items-center justify-center gap-2"
             >
               {showPromptBox ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
-              {showPromptBox ? "Hide prompt" : `Show prompt (${generatedPrompt.length.toLocaleString()} characters)`}
+              {showPromptBox
+                ? "Hide prompt"
+                : `Show prompt (${generatedPrompt.length.toLocaleString()} characters)`}
             </button>
 
             {showPromptBox && (
@@ -2318,7 +2533,7 @@ export default function MotionEditor({ projects = [], showToast }) {
             <ArrowLeft className="w-4 h-4"/>
           </button>
           <button
-            disabled={history.length === 0}
+            disabled={history.length === 0 || exporting}
             onClick={handleUndo}
             className="p-2 rounded-xl bg-white/5 hover:bg-white/10 disabled:opacity-30"
             title="Undo"
@@ -2326,7 +2541,7 @@ export default function MotionEditor({ projects = [], showToast }) {
             <RotateCcw className="w-4 h-4"/>
           </button>
           <button
-            disabled={future.length === 0}
+            disabled={future.length === 0 || exporting}
             onClick={handleRedo}
             className="p-2 rounded-xl bg-white/5 hover:bg-white/10 disabled:opacity-30"
             title="Redo"
@@ -2344,13 +2559,14 @@ export default function MotionEditor({ projects = [], showToast }) {
 
         <div className="flex items-center gap-2 flex-wrap">
           <select
+            disabled={exporting}
             value={`${formatId}_${fps}`}
             onChange={(e) => {
               const [fId, fRate] = e.target.value.split("_");
               setFormatId(fId);
               setFps(Number(fRate));
             }}
-            className="px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-400/40 text-amber-200 text-xs font-bold"
+            className="px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-400/40 text-amber-200 text-xs font-bold disabled:opacity-40"
           >
             {FORMAT_OPTIONS.map((f) =>
               FPS_OPTIONS.map((fr) => (
@@ -2372,11 +2588,11 @@ export default function MotionEditor({ projects = [], showToast }) {
           >
             {exporting ? (
               <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin"/> Exporting {exportPercent}%
+                <Loader2 className="w-3.5 h-3.5 animate-spin"/> {exportLabel || "Exporting..."}
               </>
             ) : (
               <>
-                <Download className="w-3.5 h-3.5"/> Export
+                <Download className="w-3.5 h-3.5"/> Export MP4
               </>
             )}
           </button>
@@ -2404,18 +2620,25 @@ export default function MotionEditor({ projects = [], showToast }) {
                 </div>
               </div>
             )}
+            {exporting && (
+              <div className="absolute top-3 left-3 px-3 py-1.5 rounded-full bg-black/80 border border-amber-400/50 text-amber-300 text-xs font-bold flex items-center gap-2">
+                <Loader2 className="w-3.5 h-3.5 animate-spin"/>
+                {exportLabel || "Exporting MP4..."} (Keep tab open)
+              </div>
+            )}
           </div>
 
           {/* Transport / Scrubber */}
           <div className="space-y-2">
             <div className="flex items-center gap-3">
               <button
+                disabled={exporting}
                 onClick={() => {
                   setIsPlaying(false);
                   setCurrentTime(0);
                   currentTimeRef.current = 0;
                 }}
-                className="p-2 rounded-full bg-white/5 hover:bg-white/10 text-slate-300"
+                className="p-2 rounded-full bg-white/5 hover:bg-white/10 text-slate-300 disabled:opacity-40"
                 title="Restart"
               >
                 <RotateCcw className="w-4 h-4"/>
@@ -2441,6 +2664,7 @@ export default function MotionEditor({ projects = [], showToast }) {
 
               <input
                 type="range"
+                disabled={exporting}
                 min={0}
                 max={parsedRecipe.totalDuration}
                 step={0.05}
@@ -2765,7 +2989,7 @@ export default function MotionEditor({ projects = [], showToast }) {
                   )}
                 </div>
                 <p className="text-[11px] text-slate-400">
-                  Plays in sync during preview and automatically mixes into your exported video.
+                  Plays in sync during preview and automatically mixes into your exported MP4 video.
                 </p>
                 <label className="w-full py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-dashed border-emerald-400/40 text-xs font-semibold text-emerald-200 flex items-center justify-center gap-2 cursor-pointer">
                   <Upload className="w-4 h-4"/>
@@ -2805,7 +3029,10 @@ export default function MotionEditor({ projects = [], showToast }) {
                       const files = Array.from(e.target.files || []);
                       if (!files.length) return;
                       const added = files.map((f) => ({
-                        name: f.name.replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9_-]/g, "_"),
+                        name: f.name
+                          .replace(/\.[^.]+$/, "")
+                          .toLowerCase()
+                          .replace(/[^a-z0-9_-]/g, "_"),
                         url: URL.createObjectURL(f),
                       }));
                       setImageAssets((prev) => [...prev, ...added]);
