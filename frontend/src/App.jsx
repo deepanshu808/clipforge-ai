@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
+import MotionEditor from "./MotionEditor";
 import {
   Activity,
   AlertTriangle,
@@ -339,6 +340,7 @@ export default function App() {
   const pollTimerRef = useRef(null);
 
   // Video Editor State
+  const [editorMode, setEditorMode] = useState("motion"); // motion | clip
   const [editingContext, setEditingContext] = useState(null);
   const [editDraft, setEditDraft] = useState(null);
   const [editHistory, setEditHistory] = useState([]);
@@ -1263,7 +1265,6 @@ export default function App() {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const list = await resp.json();
 
-      // Strict per-user filtering so one user NEVER sees another user's videos
       const userOnlyList = Array.isArray(list)
         ? list.filter((p) => ownedIds.has(String(p.id)))
         : [];
@@ -1625,6 +1626,7 @@ export default function App() {
     setEditHistory([]);
     setEditFuture([]);
     setEditorMessage("");
+    setEditorMode("clip");
     setActiveTab("editor");
   };
 
@@ -2753,7 +2755,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Recent Projects (Private to Current User + 3h Auto-Expiry Info) */}
+                  {/* Recent Projects */}
                   <div className="p-6 rounded-2xl bg-white/[0.04] border border-white/10 space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
@@ -3417,10 +3419,43 @@ export default function App() {
                 </div>
               )}
 
-              {/* ================= INTERACTIVE VIDEO EDITOR ================= */}
+              {/* ================= INTERACTIVE VIDEO EDITOR (MOTION STUDIO + CLIP TRIMMER) ================= */}
               {activeTab === "editor" && (
                 <div className="space-y-5">
-                  {!editDraft || !editingContext ? (
+                  {/* Editor Mode Switcher */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 p-2.5 rounded-2xl bg-white/[0.04] border border-white/10">
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => setEditorMode("motion")}
+                        className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
+                          editorMode === "motion"
+                            ? "bg-gradient-to-r from-amber-500 to-orange-500 text-black shadow"
+                            : "bg-white/5 text-slate-300 hover:text-white"
+                        }`}
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        Motion Edit Studio (Free)
+                      </button>
+                      <button
+                        onClick={() => setEditorMode("clip")}
+                        className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
+                          editorMode === "clip"
+                            ? "bg-gradient-to-r from-violet-600 to-cyan-500 text-white shadow"
+                            : "bg-white/5 text-slate-300 hover:text-white"
+                        }`}
+                      >
+                        <Scissors className="w-3.5 h-3.5" />
+                        Clip Trimmer (MP4 Editor)
+                      </button>
+                    </div>
+                    <span className="text-[11px] text-emerald-300 px-2">
+                      Motion Edit Studio is 100% Free — uses 0 credits
+                    </span>
+                  </div>
+
+                  {editorMode === "motion" ? (
+                    <MotionEditor projects={projects} showToast={showToast} />
+                  ) : !editDraft || !editingContext ? (
                     <div className="p-12 text-center rounded-2xl bg-white/[0.04] border border-white/10 text-slate-400 text-sm">
                       Open any clip from{" "}
                       <button
