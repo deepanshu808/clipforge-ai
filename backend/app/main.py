@@ -3,6 +3,8 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
+import tempfile
 import threading
 import time
 import uuid
@@ -18,6 +20,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 
 from app.clip_detector import detect_highlights, transcribe_wav
 from app.payments import router as payments_router
@@ -1394,6 +1397,85 @@ def api_delete_clip(request: Request, project_id: str, clip_id: str):
     if not delete_clip_record(project_id, clip_id):
         raise HTTPException(status_code=404, detail="Clip not found.")
     return {"deleted": True, "clip_id": clip_id}
+
+
+# ---------------------------------------------------------------------------
+# 8. Free Motion Studio Universal MP4 Converter (Zero Credits, Auto-Cleaned)
+# ---------------------------------------------------------------------------
+@app.post("/api/motion/export-mp4")
+async def api_motion_export_mp4(
+    file: UploadFile = File(...),
+    fps: int = Form(30),
+    filename: str = Form("clipforge_motion.mp4"),
+):
+    ffmpeg = check_ffmpeg_health()
+    if not ffmpeg["available"]:
+        raise HTTPException(status_code=503, detail="FFmpeg is not available on server.")
+
+    safe_fps = 60 if int(fps) >= 60 else 30
+    safe_out_name = sanitize_filename(filename or "clipforge_motion.mp4")
+    if not safe_out_name.lower().endswith(".mp4"):
+        safe_out_name = f"{Path(safe_out_name).stem}.mp4"
+
+    tmp_dir = Path(tempfile.mkdtemp(prefix="cf_motion_"))
+    in_path = tmp_dir / "input.webm"
+    out_path = tmp_dir / safe_out_name
+
+    max_bytes = 120 * 1024 * 1024
+    total_bytes = 0
+    try:
+        with open(in_path, "wb") as out_f:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total_bytes += len(chunk)
+                if total_bytes > max_bytes:
+                    raise HTTPException(status_code=413, detail="Export file exceeds 120 MB limit.")
+                out_f.write(chunk)
+
+        if total_bytes == 0:
+            raise HTTPException(status_code=400, detail="Recorded video file is empty.")
+
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-fflags", "+genpts",
+            "-i", str(in_path),
+            "-map", "0:v:0",
+            "-map", "0:a?",
+            "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+            "-r", str(safe_fps),
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "22",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-movflags", "+faststart",
+            str(out_path),
+        ]
+
+        proc = await asyncio.to_thread(
+            subprocess.run,
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=180,
+        )
+        if proc.returncode != 0 or not out_path.exists() or out_path.stat().st_size == 0:
+            err_tail = (proc.stderr or b"").decode("utf-8", errors="ignore")[-300:]
+            raise HTTPException(status_code=500, detail=f"MP4 conversion failed: {err_tail}")
+
+        return FileResponse(
+            str(out_path),
+            media_type="video/mp4",
+            filename=safe_out_name,
+            background=BackgroundTask(shutil.rmtree, str(tmp_dir), True),
+        )
+    except Exception:
+        shutil.rmtree(str(tmp_dir), ignore_errors=True)
+        raise
 
 
 if __name__ == "__main__":
