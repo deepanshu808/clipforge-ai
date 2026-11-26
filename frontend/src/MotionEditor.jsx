@@ -30,12 +30,12 @@ import {
   Smartphone,
   Sparkles,
   Square,
+  Subtitles,
   Trash2,
   Upload,
   Video,
   Wand2,
   X,
-  Zap,
 } from "lucide-react";
 
 const STORAGE_KEY = "clipforge_motion_projects_v1";
@@ -66,50 +66,34 @@ const FPS_OPTIONS = [
 
 const EDIT_STYLES = [
   {
-    id: "pro_creator_hybrid",
-    name: "Pro Creator Hybrid (Video + Motion)",
-    desc: "Alternates your original talking-head video with high-end motion graphics (charts, search bar, hubs, PiP) like top YouTube & Reels editors.",
+    id: "video_captions_broll",
+    name: "Original Video + Animated Bottom Captions + B-Roll Image Slots",
+    desc: "Plays your original video with punchy word-by-word animated captions at the bottom, and inserts empty image B-roll slots (with ready AI image prompts) scaled to your video length.",
     icon: Video,
     promptRules:
-      'Alternate between `video "main"` (original video cutaways for 2–3s), `pip` (video + animated headline), and rich motion graphics (`search`, `chart`, `hub`, `orbit`, `bars`, `stat`) so the viewer never gets bored.',
+      'Keep the user\'s original video (`video "main"`) as the main visual with crisp animated bottom captions, and insert well-timed `image "image_1"`, `image "image_2"`, etc. B-roll cutaways every ~12–18 seconds based on video length. Provide a detailed image generation prompt for every single image inside `[ASSETS]`.',
   },
   {
-    id: "motion_graphics_dynamic",
-    name: "Motion Graphics Pro (Charts, Hubs & UI)",
-    desc: "Apple / Opus-style dynamic motion graphics: animated search bars with cursor clicks, glowing line charts, orbital rings, and radiating hub cards.",
-    icon: Sparkles,
+    id: "clean_text_images",
+    name: "Clean Animated Text + Image Slots (Classic Style)",
+    desc: "Classic clean typography & cards with word-by-word animated bottom captions + empty image slots with AI image prompts for key moments.",
+    icon: Subtitles,
     promptRules:
-      "Every idea becomes a rich visual motion graphic. Heavily use `search`, `chart`, `hub`, `orbit`, `bars`, `stat`, and `card` synced tightly to voice timestamps.",
+      'Use clean kinetic typography (`text`, `badge`, `stat`, `card`) paired with animated bottom captions and `image "image_1"`, `image "image_2"`, etc. B-roll slots scaled to the video duration. Include a custom AI image generation prompt for each image in `[ASSETS]`.',
   },
   {
-    id: "dynamic_no_assets",
-    name: "Dynamic No Assets",
-    desc: "Balanced, punchy kinetic typography with varied entrances, badges, and animated stat counters — zero images required.",
-    icon: Zap,
-    promptRules:
-      "Use NO external images. Focus on punchy kinetic typography, bold badges, clean stat counters, charts, and varied animations (pop, fadeUp, slideLeft, zoomIn).",
-  },
-  {
-    id: "dynamic_no_assets_improved",
-    name: "Dynamic No Assets Improved",
-    desc: "High quality editorial motion cuts with clean cards and hero titles (non-caption style).",
-    icon: Film,
-    promptRules:
-      "Avoid boring subtitle walls. Turn every idea into short 2–5 word hero titles, sleek cards, bar comparisons, and high-contrast typographic beats.",
-  },
-  {
-    id: "composed",
-    name: "Composed (With Custom Images)",
-    desc: "Built around images or logos you upload in Assets, combined with motion graphics cards and callouts.",
+    id: "composed_visuals",
+    name: "Visual Story (More Image Slots + Bottom Captions)",
+    desc: "Frequent custom image visuals synced to every major beat of your script, with animated bottom captions and ready AI prompts under each empty image box.",
     icon: Layers,
     promptRules:
-      'Include an [ASSETS] section listing 5–7 image asset names and prompts, then reference them in [RECIPE] using `image "asset_name"` alongside `card`, `chart`, and `hub` beats.',
+      'Build a visual-first edit using frequent `image "image_1"`, `image "image_2"`, etc. scenes (every ~8–10 seconds) combined with animated bottom captions (`sub="..."`). List every image and its detailed generation prompt in `[ASSETS]`.',
   },
 ];
 
 const THEMES = {
   dark: {
-    label: "Obsidian Orange",
+    label: "Obsidian Amber",
     bg1: "#09090f",
     bg2: "#16111f",
     accent: "#f59e0b",
@@ -118,17 +102,6 @@ const THEMES = {
     sub: "#cbd5e1",
     cardBg: "rgba(255,255,255,0.08)",
     cardBorder: "rgba(245,158,11,0.45)",
-  },
-  opus: {
-    label: "Studio Paper (Opus Style)",
-    bg1: "#f5f4f0",
-    bg2: "#e7e5df",
-    accent: "#ea580c",
-    accent2: "#f59e0b",
-    text: "#18181b",
-    sub: "#52525b",
-    cardBg: "rgba(255,255,255,0.92)",
-    cardBorder: "rgba(234,88,12,0.35)",
   },
   neon: {
     label: "Cyber Violet",
@@ -165,66 +138,63 @@ const THEMES = {
   },
 };
 
-const ANIMATIONS = [
-  "fadeUp",
-  "pop",
-  "slideLeft",
-  "slideRight",
-  "zoomIn",
-  "typewriter",
-  "fadeIn",
-  "none",
-];
+const ANIMATIONS = ["fadeUp", "pop", "slideLeft", "slideRight", "zoomIn", "fadeIn", "none"];
 
 const CUE_TYPES = [
-  { value: "text", label: "Text" },
-  { value: "stat", label: "Stat Counter" },
-  { value: "card", label: "Card" },
-  { value: "badge", label: "Badge Hook" },
-  { value: "search", label: "Search Bar UI" },
-  { value: "chart", label: "Line Chart" },
-  { value: "hub", label: "Starburst Hub" },
-  { value: "orbit", label: "Orbital Rings" },
-  { value: "bars", label: "Bar Chart" },
-  { value: "video", label: "Original Video" },
-  { value: "pip", label: "Video + Motion (PiP)" },
-  { value: "image", label: "Image Asset" },
+  { value: "video", label: "Original Video + Bottom Captions" },
+  { value: "image", label: "Image Slot + Bottom Captions" },
+  { value: "text", label: "Clean Animated Text" },
+  { value: "badge", label: "Hook Badge + Text" },
+  { value: "stat", label: "Big Stat Highlight" },
+  { value: "card", label: "Clean Info Card" },
 ];
 
 const DEMO_TEMPLATES = [
   {
-    title: "Pro Motion Showcase",
-    format: "9:16",
-    theme: "opus",
-    code: `v1
-theme=opus
-00:00.00 --> 00:03.20 search "animate my idea" sub="AI Motion Engine" in=pop
-00:03.20 --> 00:06.80 chart "Retention Spike" sub="22,68,40,86,58,96" in=fadeUp
-00:06.80 --> 00:10.00 orbit "100% Automated" sub="Smooth 60fps curves" in=zoomIn
-00:10.00 --> 00:13.50 hub "ClipForge Studio" sub="Script|Motion|Video|Export" in=pop`,
-  },
-  {
-    title: "Creator Video + Motion",
+    title: "Video + B-Roll Image Slots",
     format: "9:16",
     theme: "dark",
-    code: `v1
+    code: `[ASSETS]
+image_1: Cinematic vertical 9:16 illustration of a futuristic glowing AI video studio floating over a dark desk, dramatic amber and cyan rim lighting, ultra clean, 4K, no text
+image_2: Modern minimalist 3D smartphone mockup showing viral short-form video clips popping out of the screen, moody dark aesthetic, soft studio glow, 4K, no text
+
+[RECIPE]
+v1
 theme=dark
-00:00.00 --> 00:02.60 video "main" sub="Hook: Watch how top editors cut videos" in=zoomIn
-00:02.60 --> 00:05.60 search "viral editing workflow" sub="Step 1" in=pop
-00:05.60 --> 00:08.60 pip "Keep Viewers Hooked" sub="Switch between face & motion every 3s" in=slideLeft
-00:08.60 --> 00:11.80 bars "Watch Time Boost" sub="Raw:28|Pro Edit:94" in=fadeUp
-00:11.80 --> 00:14.50 video "main" sub="Try it free inside ClipForge AI" in=zoomIn`,
+00:00.00 --> 00:03.20 video "main" sub="Aaj main aapko ek free AI hack bataunga" in=fadeIn
+00:03.20 --> 00:06.80 image "image_1" sub="Jisse aap unlimited cinematic videos bana sakte hain" in=zoomIn
+00:06.80 --> 00:10.00 video "main" sub="Aur ismein aapka ek bhi rupaya nahi lagega" in=fadeIn
+00:10.00 --> 00:13.50 image "image_2" sub="Bas 2 minute mein viral shorts ready ho jayenge" in=zoomIn`,
   },
   {
-    title: "Finance Growth Edit",
+    title: "Clean Text + Image Story",
+    format: "9:16",
+    theme: "neon",
+    code: `[ASSETS]
+image_1: Dramatic cinematic vertical 9:16 photo of a young Indian creator editing at a glowing neon workstation at night, shallow depth of field, 4K, no text
+image_2: Clean glowing 3D rocket launching upward representing viral social media growth on a dark purple background, sleek minimal style, 4K, no text
+
+[RECIPE]
+v1
+theme=neon
+00:00.00 --> 00:02.80 badge "STOP SCROLLING" sub="Most creators waste 4 hours editing one short" in=pop
+00:02.80 --> 00:06.20 image "image_1" sub="Jabki smart editors AI workflow use karte hain" in=zoomIn
+00:06.20 --> 00:09.00 stat "10x Faster" sub="Clean captions aur visual B-roll ke saath" in=pop
+00:09.00 --> 00:12.50 image "image_2" sub="Save this workflow aur aaj hi try karo" in=zoomIn`,
+  },
+  {
+    title: "YouTube Explainer (16:9)",
     format: "16:9",
     theme: "emerald",
-    code: `v1
+    code: `[ASSETS]
+image_1: Clean 16:9 widescreen editorial illustration of stacked glowing gold coins growing into a lush green tree on a dark emerald backdrop, 4K, no text
+
+[RECIPE]
+v1
 theme=emerald
-00:00.00 --> 00:02.80 badge "SMART MONEY" sub="You save every month, right?" in=pop
-00:02.80 --> 00:06.20 chart "10-Year Compounding" sub="15,28,24,48,65,98" in=fadeUp
-00:06.20 --> 00:09.20 stat "₹11,60,000" sub="From ₹5,000 / month" in=zoomIn
-00:09.20 --> 00:12.40 hub "Wealth Pillars" sub="Save|Invest|Repeat|Grow" in=slideRight`,
+00:00.00 --> 00:03.20 text "You save every month, right?" sub="Let us see what compounding actually does" in=fadeUp
+00:03.20 --> 00:06.80 image "image_1" sub="Small consistent investments grow silently over 10 years" in=zoomIn
+00:06.80 --> 00:10.00 stat "₹11,60,000" sub="Starting with just ₹5,000 per month" in=pop`,
   },
 ];
 
@@ -280,11 +250,45 @@ function relativeTimeLabel(iso) {
   return `${Math.floor(diffSec / 86400)}d ago`;
 }
 
-function parseRecipe(rawText, fallbackTheme = "dark") {
+function generateImagePromptForScene(sceneText, formatId = "9:16") {
+  const ratioLabel =
+    formatId === "9:16"
+      ? "vertical 9:16 portrait composition"
+      : formatId === "1:1"
+      ? "square 1:1 composition"
+      : "widescreen 16:9 cinematic composition";
+
+  const cleanContext = String(sceneText || "")
+    .replace(/"/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+  const lower = cleanContext.toLowerCase();
+
+  let visualConcept = `a vivid, high-impact visual scene representing: "${cleanContext || "creator storytelling moment"}"`;
+
+  if (lower.includes("chatgpt") || lower.includes("prompt") || lower.includes("ai")) {
+    visualConcept = `a sleek modern dark laptop screen glowing with a futuristic AI prompt interface, soft neon reflections on a creator's desk, representing "${cleanContext}"`;
+  } else if (lower.includes("gmail") || lower.includes("google") || lower.includes("vids") || lower.includes("veo")) {
+    visualConcept = `a clean futuristic 3D UI concept showing glowing cloud video studio tools and app icons floating in mid-air over a dark sleek workspace, representing "${cleanContext}"`;
+  } else if (lower.includes("friend") || lower.includes("gaon") || lower.includes("village") || lower.includes("paisa") || lower.includes("paise")) {
+    visualConcept = `an emotional cinematic photograph of two young Indian friends aged 22-23 in a rural Indian village during golden hour sunset, warm realistic storytelling lighting, representing "${cleanContext}"`;
+  } else if (lower.includes("short") || lower.includes("reel") || lower.includes("9:16") || lower.includes("size")) {
+    visualConcept = `a crisp glowing smartphone displaying a vertical viral short-form video frame with floating cinematic film strips, dark studio aesthetic, representing "${cleanContext}"`;
+  } else if (lower.includes("money") || lower.includes("save") || lower.includes("rupay") || lower.includes("free") || lower.includes("unlimited")) {
+    visualConcept = `a dramatic high-contrast 3D visual of unlocked golden value and infinite creative power glowing in a sleek dark studio, representing "${cleanContext}"`;
+  } else if (lower.includes("result") || lower.includes("generate") || lower.includes("ready") || lower.includes("comment")) {
+    visualConcept = `a cinematic studio shot of a glowing video player timeline finishing a 100% AI render with dramatic light rays and crisp modern aesthetic, representing "${cleanContext}"`;
+  }
+
+  return `Create a photorealistic, high-retention B-roll image (${ratioLabel}) depicting ${visualConcept}. Dramatic cinematic lighting, crisp focus, rich depth of field, clean composition with subtle dark space at the bottom for subtitles, 4K quality, strictly NO text or watermarks in the image.`;
+}
+
+function parseRecipe(rawText, fallbackTheme = "dark", formatId = "9:16") {
   const result = {
     theme: fallbackTheme,
     bgColor: null,
     cues: [],
+    requiredAssets: [], // [{ name, prompt, start, end, sceneText }]
     totalDuration: 10,
   };
   if (!rawText || !rawText.trim()) return result;
@@ -299,19 +303,34 @@ function parseRecipe(rawText, fallbackTheme = "dark") {
     /^(\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d+)?|\d+(?:[.,]\d+)?)\s*(?:-->|->)\s*(\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d+)?|\d+(?:[.,]\d+)?)\s*(.*)$/;
 
   const logicalBlocks = [];
+  const assetPromptMap = {};
+  const assetOrder = [];
   let inAssetsSection = false;
 
   for (const line of lines) {
     const upper = line.toUpperCase();
-    if (upper === "[ASSETS]") {
+    if (upper === "[ASSETS]" || upper.startsWith("[ASSETS]")) {
       inAssetsSection = true;
       continue;
     }
-    if (upper === "[RECIPE]") {
+    if (upper === "[RECIPE]" || upper.startsWith("[RECIPE]")) {
       inAssetsSection = false;
       continue;
     }
-    if (inAssetsSection) continue;
+    if (inAssetsSection) {
+      if (line.toLowerCase() === "none" || line.toLowerCase() === "(none)") continue;
+      // Parse lines like: "image_1: prompt text", "- image_1 | prompt", "1. image_1 - prompt"
+      const cleanedAssetLine = line.replace(/^[-*•]\s*/, "").replace(/^\d+\.\s*/, "");
+      const m = cleanedAssetLine.match(/^([a-zA-Z0-9_-]+)\s*[:|\-–—]\s*(.+)$/);
+      if (m) {
+        const key = m[1].toLowerCase().trim();
+        const promptText = m[2].trim();
+        if (!assetPromptMap[key]) assetOrder.push(key);
+        assetPromptMap[key] = promptText;
+      }
+      continue;
+    }
+
     if (line.toLowerCase() === "v1") continue;
 
     if (line.toLowerCase().startsWith("theme=")) {
@@ -341,9 +360,7 @@ function parseRecipe(rawText, fallbackTheme = "dark") {
 
     let type = "text";
     let mainText = "";
-    const typeMatch = rest.match(
-      /\b(text|stat|card|badge|image|video|pip|search|chart|hub|orbit|bars)\s+"([^"]*)"/i
-    );
+    const typeMatch = rest.match(/\b(video|image|text|stat|card|badge)\s+"([^"]*)"/i);
     if (typeMatch) {
       type = typeMatch[1].toLowerCase();
       mainText = typeMatch[2];
@@ -372,6 +389,39 @@ function parseRecipe(rawText, fallbackTheme = "dark") {
     });
   });
 
+  // Build ordered list of required image slots with timestamps + prompts
+  const slotInfoByKey = {};
+  cues.forEach((c) => {
+    if (c.type === "image") {
+      const key = String(c.text || "").toLowerCase().trim();
+      if (!key) return;
+      if (!slotInfoByKey[key]) {
+        slotInfoByKey[key] = {
+          name: key,
+          start: c.start,
+          end: c.end,
+          sceneText: c.sub || c.text,
+        };
+      }
+      if (!assetOrder.includes(key)) {
+        assetOrder.push(key);
+      }
+    }
+  });
+
+  result.requiredAssets = assetOrder.map((key) => {
+    const info = slotInfoByKey[key];
+    return {
+      name: key,
+      prompt:
+        assetPromptMap[key] ||
+        generateImagePromptForScene(info?.sceneText || key.replace(/_/g, " "), formatId),
+      start: info ? info.start : null,
+      end: info ? info.end : null,
+      sceneText: info ? info.sceneText : "",
+    };
+  });
+
   result.cues = cues;
   if (cues.length > 0) {
     result.totalDuration = Math.max(3, ...cues.map((c) => c.end));
@@ -379,8 +429,20 @@ function parseRecipe(rawText, fallbackTheme = "dark") {
   return result;
 }
 
-function serializeCuesToRecipe(cues, theme = "dark") {
-  const lines = ["v1", `theme=${theme}`];
+function serializeCuesToRecipe(cues, theme = "dark", requiredAssets = []) {
+  const lines = [];
+  if (Array.isArray(requiredAssets) && requiredAssets.length > 0) {
+    lines.push("[ASSETS]");
+    requiredAssets.forEach((a) => {
+      if (a?.name) {
+        lines.push(`${a.name}: ${String(a.prompt || "").replace(/\r?\n/g, " ").trim()}`);
+      }
+    });
+    lines.push("");
+    lines.push("[RECIPE]");
+  }
+  lines.push("v1");
+  lines.push(`theme=${theme}`);
   cues.forEach((c) => {
     const safeText = String(c.text || "").replace(/"/g, "'");
     let line = `${formatRecipeTime(c.start)} --> ${formatRecipeTime(c.end)} ${c.type} "${safeText}"`;
@@ -394,145 +456,54 @@ function serializeCuesToRecipe(cues, theme = "dark") {
   return lines.join("\n");
 }
 
-function splitIntoPunchyChunks(text, maxWords = 8) {
+function splitLongSegment(start, end, text, maxWords = 10, maxDur = 4.2) {
   const clean = String(text || "").replace(/\s+/g, " ").trim();
   if (!clean) return [];
-  const sentences = clean.split(/(?<=[.!?।])\s+/).filter(Boolean);
-  const chunks = [];
-  for (const s of sentences) {
-    const words = s.split(/\s+/);
-    if (words.length <= maxWords + 2) {
-      chunks.push(s);
-    } else {
-      for (let i = 0; i < words.length; i += maxWords) {
-        chunks.push(words.slice(i, i + maxWords).join(" "));
-      }
-    }
+  const words = clean.split(/\s+/);
+  const totalDur = Math.max(1.2, end - start);
+
+  // Split long 10-second SRT blocks into crisp 3-4s sub-segments so captions stay clean & snappy
+  const piecesNeeded = Math.max(
+    1,
+    Math.ceil(words.length / maxWords),
+    Math.ceil(totalDur / maxDur)
+  );
+  if (piecesNeeded <= 1) {
+    return [{ start, end, text: clean }];
   }
-  return chunks;
+
+  const wordsPerPiece = Math.ceil(words.length / piecesNeeded);
+  const subParts = [];
+  for (let i = 0; i < words.length; i += wordsPerPiece) {
+    subParts.push(words.slice(i, i + wordsPerPiece).join(" "));
+  }
+  const totalChars = Math.max(
+    1,
+    subParts.reduce((acc, s) => acc + s.length, 0)
+  );
+
+  const out = [];
+  let cursor = start;
+  subParts.forEach((part, idx) => {
+    const frac = part.length / totalChars;
+    const partDur = idx === subParts.length - 1 ? Math.max(0.8, end - cursor) : Math.max(0.9, totalDur * frac);
+    const nextEnd = idx === subParts.length - 1 ? end : Math.min(end, cursor + partDur);
+    out.push({ start: cursor, end: nextEnd, text: part });
+    cursor = nextEnd;
+  });
+  return out;
 }
 
-function buildRecipeFromTranscript(
-  transcript,
-  theme = "dark",
-  editStyleId = "pro_creator_hybrid",
-  includeOriginalVideo = false
-) {
+function extractTimedSegments(transcript) {
   const clean = normalizeSmartQuotes(transcript || "").trim();
-  if (!clean) return DEMO_TEMPLATES[0].code;
+  if (!clean) return [];
 
-  const lines = ["v1", `theme=${theme}`];
-  const isHybrid = includeOriginalVideo || editStyleId === "pro_creator_hybrid";
-  const isProMotion =
-    editStyleId === "motion_graphics_dynamic" || editStyleId === "pro_creator_hybrid";
-  const animCycle = ["pop", "fadeUp", "slideLeft", "zoomIn", "slideRight"];
-  const maxWordsPerChunk = isProMotion ? 7 : 8;
-
-  const pushCue = (start, end, text, idx) => {
-    const safe = String(text || "").replace(/"/g, "'").trim();
-    if (!safe || /^\d{1,2}:\d{2}(?::\d{2})?$/.test(safe)) return;
-    const anim = animCycle[idx % animCycle.length];
-    const hasStat = /\d+%|₹\d+|\$\d+|\d+x/i.test(safe);
-    const words = safe.split(/\s+/);
-    const shortTitle = words.slice(0, 4).join(" ");
-    const hubNodes = words.filter((w) => w.length > 2).slice(0, 4);
-    const hubLabel = hubNodes.length >= 3 ? hubNodes.join("|") : "Hook|Value|Proof|Action";
-
-    if (isHybrid) {
-      const slot = idx % 6;
-      if (slot === 0) {
-        lines.push(
-          `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} video "main" sub="${safe}" in=zoomIn`
-        );
-      } else if (slot === 1) {
-        lines.push(
-          `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} search "${shortTitle}" sub="${safe}" in=pop`
-        );
-      } else if (slot === 2) {
-        lines.push(
-          `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} pip "${shortTitle}" sub="${safe}" in=slideLeft`
-        );
-      } else if (slot === 3) {
-        if (hasStat) {
-          lines.push(
-            `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} stat "${safe}" in=zoomIn`
-          );
-        } else {
-          lines.push(
-            `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} chart "${shortTitle}" sub="22,60,42,84,68,95" in=fadeUp`
-          );
-        }
-      } else if (slot === 4) {
-        lines.push(
-          `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} video "main" sub="${safe}" in=fadeIn`
-        );
-      } else {
-        lines.push(
-          `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} hub "${shortTitle}" sub="${hubLabel}" in=pop`
-        );
-      }
-      return;
-    }
-
-    if (isProMotion) {
-      const slot = idx % 6;
-      if (idx === 0) {
-        lines.push(
-          `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} search "${shortTitle}" sub="${safe}" in=pop`
-        );
-      } else if (hasStat) {
-        lines.push(
-          `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} stat "${safe}" in=zoomIn`
-        );
-      } else if (slot === 1) {
-        lines.push(
-          `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} chart "${shortTitle}" sub="20,65,38,85,55,96" in=fadeUp`
-        );
-      } else if (slot === 2) {
-        lines.push(
-          `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} card "${shortTitle}" sub="${safe}" in=slideLeft`
-        );
-      } else if (slot === 3) {
-        lines.push(
-          `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} orbit "${shortTitle}" sub="${safe}" in=pop`
-        );
-      } else if (slot === 4) {
-        lines.push(
-          `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} bars "${shortTitle}" sub="Old:30|New:95" in=fadeUp`
-        );
-      } else {
-        lines.push(
-          `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} hub "${shortTitle}" sub="${hubLabel}" in=zoomIn`
-        );
-      }
-      return;
-    }
-
-    if (idx === 0) {
-      lines.push(
-        `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} badge "WATCH THIS" sub="${safe}" in=pop`
-      );
-    } else if (hasStat) {
-      lines.push(
-        `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} stat "${safe}" in=zoomIn`
-      );
-    } else if (idx % 4 === 3) {
-      lines.push(
-        `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} card "${safe}" in=${anim}`
-      );
-    } else {
-      lines.push(
-        `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} text "${safe}" in=${anim}`
-      );
-    }
-  };
-
-  // 1. Standard SRT / VTT range format
+  // 1. Standard SRT / VTT format
   const srtBlocks = clean.split(/\r?\n\r?\n/);
   const srtTimeRe =
     /(\d{1,2}:\d{2}(?::\d{2})?[.,]\d{1,3})\s*-->\s*(\d{1,2}:\d{2}(?::\d{2})?[.,]\d{1,3})/;
 
-  let cueCount = 0;
+  const srtSegments = [];
   for (const block of srtBlocks) {
     const blines = block
       .split(/\r?\n/)
@@ -549,13 +520,12 @@ function buildRecipeFromTranscript(
         .replace(/<[^>]+>/g, "")
         .trim();
       if (!text) continue;
-      pushCue(start, end, text, cueCount);
-      cueCount++;
+      srtSegments.push(...splitLongSegment(start, end, text, 10, 4.2));
     }
   }
-  if (cueCount > 0) return lines.join("\n");
+  if (srtSegments.length > 0) return srtSegments;
 
-  // 2. Standalone MM:SS timestamped format
+  // 2. Standalone MM:SS timestamped format (like Riverside / YouTube / Whisper)
   const rawLines = clean
     .replace(/\r/g, "")
     .split("\n")
@@ -576,45 +546,139 @@ function buildRecipeFromTranscript(
   }
 
   if (timedSections.length >= 2) {
-    let idx = 0;
+    const out = [];
     timedSections.forEach((sec, sIdx) => {
-      const combinedText = sec.textParts.join(" ").trim();
-      const chunks = splitIntoPunchyChunks(combinedText, maxWordsPerChunk);
-      if (chunks.length === 0) return;
-
+      const text = sec.textParts.join(" ").trim();
+      if (!text) return;
       const nextStart =
         sIdx + 1 < timedSections.length
-          ? Math.max(sec.start + chunks.length * 1.6, timedSections[sIdx + 1].start)
-          : sec.start + Math.max(2.5, chunks.length * 2.8);
-      const totalSpan = Math.max(1.5, nextStart - sec.start);
-      const perChunk = totalSpan / chunks.length;
-
-      chunks.forEach((chunk, cIdx) => {
-        const cStart = sec.start + cIdx * perChunk;
-        const cEnd = sec.start + (cIdx + 1) * perChunk;
-        pushCue(cStart, cEnd, chunk, idx);
-        idx++;
-      });
+          ? Math.max(sec.start + 1.5, timedSections[sIdx + 1].start)
+          : sec.start + Math.max(3.0, text.split(/\s+/).length * 0.42);
+      out.push(...splitLongSegment(sec.start, nextStart, text, 10, 4.2));
     });
-    if (idx > 0) return lines.join("\n");
+    if (out.length > 0) return out;
   }
 
-  // 3. Plain text transcript
+  // 3. Plain text transcript -> natural 2.8s - 3.8s speech chunks
   const cleanedPlain = rawLines
     .filter((l) => !/^\[?\d{1,2}:\d{2}(?::\d{2})?\]?$/.test(l))
     .join(" ");
-  const chunks = splitIntoPunchyChunks(cleanedPlain, maxWordsPerChunk);
+  const sentences = cleanedPlain.split(/(?<=[.!?।])\s+/).filter(Boolean);
+  const chunks = [];
+  for (const s of sentences) {
+    const words = s.split(/\s+/);
+    if (words.length <= 10) {
+      chunks.push(s);
+    } else {
+      for (let i = 0; i < words.length; i += 8) {
+        chunks.push(words.slice(i, i + 8).join(" "));
+      }
+    }
+  }
 
   let cursor = 0;
-  chunks.slice(0, 40).forEach((chunk, idx) => {
+  return chunks.slice(0, 60).map((chunk) => {
     const dur = Math.min(4.0, Math.max(2.2, chunk.split(/\s+/).length * 0.38));
-    const start = cursor;
-    const end = cursor + dur;
-    cursor = end;
-    pushCue(start, end, chunk, idx);
+    const seg = { start: cursor, end: cursor + dur, text: chunk };
+    cursor += dur;
+    return seg;
+  });
+}
+
+function buildRecipeFromTranscript(
+  transcript,
+  theme = "dark",
+  editStyleId = "video_captions_broll",
+  formatId = "9:16",
+  hasOriginalVideo = false
+) {
+  const segments = extractTimedSegments(transcript);
+  if (segments.length === 0) return DEMO_TEMPLATES[0].code;
+
+  const totalDur = Math.max(5, segments[segments.length - 1].end);
+  const useVideoBase = hasOriginalVideo || editStyleId === "video_captions_broll";
+  const denseImages = editStyleId === "composed_visuals";
+
+  // Automatically compute ideal number of image B-roll slots based on video length
+  const spacingSec = denseImages ? 9 : 16;
+  const targetSlots = Math.max(2, Math.min(14, Math.round(totalDur / spacingSec)));
+
+  // Pick evenly spaced segment indices for image slots (skip index 0 so hook shows speaker/badge first)
+  const imageSlotBySegIdx = new Map();
+  if (segments.length >= 3) {
+    const step = (segments.length - 1) / targetSlots;
+    let imgCounter = 1;
+    for (let k = 0; k < targetSlots; k++) {
+      const segIdx = Math.min(
+        segments.length - 1,
+        Math.max(1, Math.round(0.6 * step + k * step))
+      );
+      if (!imageSlotBySegIdx.has(segIdx)) {
+        imageSlotBySegIdx.set(segIdx, `image_${imgCounter}`);
+        imgCounter++;
+      }
+    }
+  } else if (segments.length === 2) {
+    imageSlotBySegIdx.set(1, "image_1");
+  }
+
+  const assetLines = ["[ASSETS]"];
+  const recipeLines = ["", "[RECIPE]", "v1", `theme=${theme}`];
+
+  segments.forEach((seg, idx) => {
+    const safe = seg.text.replace(/"/g, "'").trim();
+    if (!safe) return;
+    const assignedAsset = imageSlotBySegIdx.get(idx);
+
+    if (assignedAsset) {
+      const prompt = generateImagePromptForScene(safe, formatId);
+      assetLines.push(`${assignedAsset}: ${prompt}`);
+      recipeLines.push(
+        `${formatRecipeTime(seg.start)} --> ${formatRecipeTime(seg.end)} image "${assignedAsset}" sub="${safe}" in=zoomIn`
+      );
+      return;
+    }
+
+    if (useVideoBase) {
+      recipeLines.push(
+        `${formatRecipeTime(seg.start)} --> ${formatRecipeTime(seg.end)} video "main" sub="${safe}" in=fadeIn`
+      );
+      return;
+    }
+
+    // Classic clean animated text style (no fake charts/hubs!)
+    const hasNumber = /\d+%|₹\d+|\$\d+|\d+x|\b100\b|\b99\b/i.test(safe);
+    if (idx === 0) {
+      const words = safe.split(/\s+/);
+      const hook = words.slice(0, 3).join(" ").toUpperCase();
+      recipeLines.push(
+        `${formatRecipeTime(seg.start)} --> ${formatRecipeTime(seg.end)} badge "${hook}" sub="${safe}" in=pop`
+      );
+    } else if (hasNumber) {
+      const numMatch = safe.match(/(₹?\d[\d,]*(?:\.\d+)?%?x?)/i);
+      const bigStat = numMatch ? numMatch[1] : safe.split(/\s+/).slice(0, 3).join(" ");
+      recipeLines.push(
+        `${formatRecipeTime(seg.start)} --> ${formatRecipeTime(seg.end)} stat "${bigStat}" sub="${safe}" in=pop`
+      );
+    } else if (idx % 4 === 0) {
+      const title = safe.split(/\s+/).slice(0, 4).join(" ");
+      recipeLines.push(
+        `${formatRecipeTime(seg.start)} --> ${formatRecipeTime(seg.end)} card "${title}" sub="${safe}" in=fadeUp`
+      );
+    } else {
+      recipeLines.push(
+        `${formatRecipeTime(seg.start)} --> ${formatRecipeTime(seg.end)} text "${safe}" in=fadeUp`
+      );
+    }
   });
 
-  return lines.join("\n");
+  if (assetLines.length === 1) {
+    assetLines.push(
+      `image_1: ${generateImagePromptForScene(segments[0]?.text || "main visual", formatId)}`
+    );
+  }
+
+  return [...assetLines, ...recipeLines].join("\n");
 }
 
 function buildAiHandoffPrompt(
@@ -623,81 +687,68 @@ function buildAiHandoffPrompt(
   fps,
   editStyleId,
   themeId,
-  includeOriginalVideo
+  hasOriginalVideo
 ) {
   const styleObj = EDIT_STYLES.find((s) => s.id === editStyleId) || EDIT_STYLES[0];
-  const synced = hasTimestampsInText(transcript);
-  const useVideo = includeOriginalVideo || editStyleId === "pro_creator_hybrid";
+  const segments = extractTimedSegments(transcript);
+  const estDur = segments.length > 0 ? Math.round(segments[segments.length - 1].end) : 30;
+  const recommendedImages = Math.max(
+    2,
+    Math.min(14, Math.round(estDur / (editStyleId === "composed_visuals" ? 9 : 16)))
+  );
+  const useVideo = hasOriginalVideo || editStyleId === "video_captions_broll";
 
-  return `You are a senior motion graphics director for ClipForge Motion Studio.
-Convert the transcript below into a cinema-grade, high-retention animated motion edit recipe.
+  return `You are a video editor for ClipForge Motion Studio.
+Create a clean, engaging edit with animated bottom captions and custom image B-roll slots matched to the transcript length (~${estDur} seconds).
 
 PROJECT SETTINGS:
 - Aspect Ratio: ${formatId}
 - Frame Rate: ${fps} fps
 - Edit Style: ${styleObj.name}
 - Theme: ${themeId}
-- Original Video Cutaways: ${useVideo ? "ENABLED — alternate original video (`video` and `pip`) with full-screen motion graphics every 2–4 seconds like a pro YouTube/Reels editor." : "Motion graphics only."}
-- Style Direction: ${styleObj.promptRules}
-- Timing Mode: ${
-    synced
-      ? "EXACT TIMESTAMPS PROVIDED — keep all scenes tightly synced to the given timestamps."
-      : "No timestamps provided — pace each visual beat naturally at 2.4s–3.5s."
-  }
+- Recommended Image Assets for this duration: ${recommendedImages} unique image slots (image_1 to image_${recommendedImages})
+- Style Rules: ${styleObj.promptRules}
 
-STRICT OUTPUT FORMAT:
-Reply ONLY with the [ASSETS] and [RECIPE] blocks — no extra commentary.
+IMPORTANT RULES:
+1. DO NOT invent fake charts, fake search bars, or repetitive filler graphics.
+2. Keep every caption line short & natural (6–10 words per 3–4 second cue) because it will animate word-by-word at the bottom of the screen.
+3. For EVERY image slot used in [RECIPE], write a rich, ready-to-use AI image generation prompt in [ASSETS] (specify ${formatId} framing, subject, lighting, mood, "no text in image").
+
+STRICT OUTPUT FORMAT (reply ONLY with [ASSETS] and [RECIPE]):
 
 [ASSETS]
-(List image asset names if using Composed style; otherwise write "None")
+image_1: Detailed ${formatId} AI image prompt for scene 1, cinematic lighting, 4K, no text
+image_2: Detailed ${formatId} AI image prompt for scene 2, cinematic lighting, 4K, no text
 
 [RECIPE]
 v1
 theme=${themeId}
 ${
   useVideo
-    ? `00:00.00 --> 00:02.60 video "main" sub="Opening hook line" in=zoomIn`
-    : `00:00.00 --> 00:02.60 badge "STOP SCROLLING" sub="Opening hook line" in=pop`
+    ? `00:00.00 --> 00:03.50 video "main" sub="Opening spoken line here" in=fadeIn`
+    : `00:00.00 --> 00:03.50 badge "HOOK" sub="Opening spoken line here" in=pop`
 }
-00:02.60 --> 00:05.80 search "animate my idea" sub="AI Workflow" in=pop
-00:05.80 --> 00:09.20 chart "Growth Curve" sub="20,65,38,85,58,96" in=fadeUp
+00:03.50 --> 00:07.50 image "image_1" sub="Spoken line while image_1 displays" in=zoomIn
 ${
   useVideo
-    ? `00:09.20 --> 00:12.20 pip "Key Insight" sub="Short punchy explanation" in=slideLeft`
-    : `00:09.20 --> 00:12.20 orbit "100% Automated" sub="Zero manual keyframes" in=zoomIn`
+    ? `00:07.50 --> 00:11.00 video "main" sub="Next spoken line on original video" in=fadeIn`
+    : `00:07.50 --> 00:11.00 text "Next clean animated text line" in=fadeUp`
 }
-00:12.20 --> 00:15.60 hub "Complete System" sub="Script|Motion|Video|Export" in=pop
 
-ALL SUPPORTED PRO MOTION GRAPHICS CUES:
-- video "main" sub="Optional bottom caption"  --> Shows the user's original talking-head video full-screen with smooth zoom
-- pip "Headline" sub="Short subtitle"         --> Picture-in-Picture: original video frame + animated motion graphic card together
-- search "Query text" sub="Top label"         --> Animated glowing search/prompt bar with typewriter + cursor click + popping cards
-- chart "Chart Title" sub="20,60,35,85,95"    --> Animated line graph with glowing orb riding across peaks & valleys
-- hub "Core Title" sub="Node1|Node2|Node3|Node4" --> Rotating glowing sunburst core with 4 connected animated cards
-- orbit "Center Title" sub="Subtitle"         --> Concentric glowing orbital rings + rotating nodes
-- bars "Comparison Title" sub="Before:25|After:95" --> Animated glowing gradient bar chart with live counters
-- stat "₹50,000" sub="Live count-up metric"   --> Big animated stat with automatic number count-up
-- card "Card Title" sub="Short point"         --> Sleek floating glassmorphism card
-- badge "PILL TAG" sub="Hero headline"        --> High-impact pill hook + bold title
-- text "Kinetic headline" sub="Optional sub"  --> Clean kinetic typography
-- image "asset_name"                          --> Displays an uploaded image from Assets tab
-
-SUPPORTED ANIMATIONS (in=):
-fadeUp, pop, slideLeft, slideRight, zoomIn, typewriter, fadeIn
-
-RULES:
-1. Keep headlines crisp (2–7 words) so they look like an agency-grade motion edit on ${formatId}.
-2. Mix at least 4–5 different visual cue types (search, chart, hub, orbit, bars, stat, card${
-    useVideo ? ", video, pip" : ""
-  }) so every 3 seconds feels dynamic.
-3. Use valid ascending MM:SS.ms --> MM:SS.ms timestamps with zero syntax errors.
+SUPPORTED CUE TYPES:
+- video "main" sub="Spoken line for animated bottom captions"
+- image "image_1" sub="Spoken line for animated bottom captions"
+- text "Clean animated headline"
+- badge "SHORT HOOK" sub="Spoken caption"
+- stat "Big Number" sub="Spoken caption"
+- card "Card Title" sub="Spoken caption"
 
 TRANSCRIPT:
 ${transcript.trim() || "(Paste your transcript here)"}`;
 }
 
 function wrapCanvasText(ctx, text, maxWidth) {
-  const words = String(text || "").split(/\s+/);
+  const words = String(text || "").split(/\s+/).filter(Boolean);
   const lines = [];
   let current = "";
   for (const word of words) {
@@ -736,95 +787,149 @@ function easeOutBack(t) {
   return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
 }
 
-function drawCoverVideo(ctx, videoEl, x, y, w, h, zoom = 1) {
-  const vw = videoEl.videoWidth || 1280;
-  const vh = videoEl.videoHeight || 720;
+function drawCoverMedia(ctx, mediaEl, mediaW, mediaH, x, y, w, h, zoom = 1) {
+  const mw = mediaW || 1280;
+  const mh = mediaH || 720;
   const targetRatio = w / h;
-  const videoRatio = vw / vh;
+  const mediaRatio = mw / mh;
   let drawW = w;
   let drawH = h;
-  if (videoRatio > targetRatio) {
+  if (mediaRatio > targetRatio) {
     drawH = h * zoom;
-    drawW = drawH * videoRatio;
+    drawW = drawH * mediaRatio;
   } else {
     drawW = w * zoom;
-    drawH = drawW / videoRatio;
+    drawH = drawW / mediaRatio;
   }
   const dx = x + (w - drawW) / 2;
   const dy = y + (h - drawH) / 2;
-  ctx.drawImage(videoEl, dx, dy, drawW, drawH);
+  ctx.drawImage(mediaEl, dx, dy, drawW, drawH);
 }
 
-function drawStarburst(ctx, cx, cy, spikes, outerR, innerR, rotation, color) {
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate(rotation);
-  ctx.strokeStyle = color;
-  ctx.lineWidth = Math.max(2.5, outerR * 0.14);
-  ctx.lineCap = "round";
-  for (let i = 0; i < spikes; i++) {
-    const angle = (i * Math.PI * 2) / spikes;
-    ctx.beginPath();
-    ctx.moveTo(Math.cos(angle) * innerR, Math.sin(angle) * innerR);
-    ctx.lineTo(Math.cos(angle) * outerR, Math.sin(angle) * outerR);
-    ctx.stroke();
+// Crisp Word-by-Word Animated Bottom Subtitle Renderer (3-4 words per beat, never overflows!)
+function drawAnimatedBottomCaption(ctx, width, height, captionText, elapsed, dur, theme) {
+  const clean = String(captionText || "").trim();
+  if (!clean) return;
+
+  const words = clean.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return;
+
+  const wordsPerGroup = width < height ? 4 : 6;
+  const groups = [];
+  for (let i = 0; i < words.length; i += wordsPerGroup) {
+    groups.push(words.slice(i, i + wordsPerGroup));
   }
-  ctx.restore();
-}
 
-function drawDiamond(ctx, x, y, r, fill, stroke = null) {
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(Math.PI / 4);
-  ctx.fillStyle = fill;
-  ctx.fillRect(-r, -r, r * 2, r * 2);
-  if (stroke) {
-    ctx.strokeStyle = stroke;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(-r, -r, r * 2, r * 2);
+  const progress = Math.min(0.9999, Math.max(0, elapsed / Math.max(0.4, dur)));
+  const globalWordIdx = Math.floor(progress * words.length);
+  const groupIdx = Math.min(groups.length - 1, Math.floor(globalWordIdx / wordsPerGroup));
+  const activeWordInGroup = globalWordIdx - groupIdx * wordsPerGroup;
+  const groupWords = groups[groupIdx];
+
+  // Calculate pop-in animation for each group transition
+  const groupStartFrac = (groupIdx * wordsPerGroup) / words.length;
+  const groupElapsed = Math.max(0, (progress - groupStartFrac) * dur);
+  const popEase = easeOutBack(Math.min(1, groupElapsed / 0.22));
+  const slideY = (1 - easeOutCubic(Math.min(1, groupElapsed / 0.18))) * 16;
+
+  const minDim = Math.min(width, height);
+  let fontSize = Math.round(minDim * (width < height ? 0.056 : 0.052));
+  ctx.font = `900 ${fontSize}px Inter, system-ui, sans-serif`;
+
+  const maxLineW = width * 0.84;
+  // Shrink font slightly if a 4-word group is still wide
+  while (ctx.measureText(groupWords.join(" ")).width > maxLineW && fontSize > 22) {
+    fontSize -= 2;
+    ctx.font = `900 ${fontSize}px Inter, system-ui, sans-serif`;
   }
-  ctx.restore();
-}
 
-function animateStatNumber(text, progress) {
-  const match = String(text || "").match(/^(.*?)(\d[\d,]*(?:\.\d+)?)(.*)$/);
-  if (!match) return text;
-  const prefix = match[1];
-  const rawNum = match[2];
-  const suffix = match[3];
-  const hasComma = rawNum.includes(",");
-  const decimals = rawNum.includes(".") ? rawNum.split(".")[1].length : 0;
-  const target = parseFloat(rawNum.replace(/,/g, ""));
-  if (Number.isNaN(target)) return text;
-  const val = target * easeOutCubic(progress);
-  const formatted = hasComma
-    ? Math.round(val).toLocaleString("en-IN")
-    : decimals > 0
-    ? val.toFixed(decimals)
-    : String(Math.round(val));
-  return `${prefix}${formatted}${suffix}`;
+  const spaceW = ctx.measureText(" ").width * 1.15;
+  const wordWidths = groupWords.map((w) => ctx.measureText(w).width);
+  const totalTextW =
+    wordWidths.reduce((a, b) => a + b, 0) + spaceW * Math.max(0, groupWords.length - 1);
+
+  const pillPadX = Math.round(fontSize * 0.72);
+  const pillPadY = Math.round(fontSize * 0.44);
+  const pillW = Math.min(width * 0.92, totalTextW + pillPadX * 2);
+  const pillH = fontSize + pillPadY * 2;
+  const centerY = height * 0.84 + slideY;
+
+  ctx.save();
+  ctx.translate(width / 2, centerY);
+  const safeScale = Math.min(1.04, 0.92 + 0.08 * popEase);
+  ctx.scale(safeScale, safeScale);
+
+  // Sleek Dark Frosted Caption Pill
+  ctx.shadowColor = "rgba(0,0,0,0.55)";
+  ctx.shadowBlur = 22;
+  ctx.fillStyle = "rgba(8, 8, 16, 0.82)";
+  drawRoundedRect(ctx, -pillW / 2, -pillH / 2, pillW, pillH, 18);
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = `${theme.accent}77`;
+  ctx.lineWidth = 2;
+  drawRoundedRect(ctx, -pillW / 2, -pillH / 2, pillW, pillH, 18);
+  ctx.stroke();
+
+  // Draw Words with Active Spoken Word Highlight
+  let cursorX = -totalTextW / 2;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+
+  groupWords.forEach((word, idx) => {
+    const wWidth = wordWidths[idx];
+    const isActive = idx === activeWordInGroup;
+
+    ctx.save();
+    if (isActive) {
+      // Soft highlight badge behind active word
+      ctx.fillStyle = `${theme.accent}33`;
+      drawRoundedRect(
+        ctx,
+        cursorX - 6,
+        -fontSize * 0.62,
+        wWidth + 12,
+        fontSize * 1.24,
+        10
+      );
+      ctx.fill();
+    }
+
+    ctx.lineJoin = "round";
+    ctx.lineWidth = Math.max(4, Math.round(fontSize * 0.14));
+    ctx.strokeStyle = "rgba(0,0,0,0.9)";
+    ctx.strokeText(word, cursorX, 1);
+
+    ctx.fillStyle = isActive ? theme.accent : "#ffffff";
+    ctx.fillText(word, cursorX, 1);
+    ctx.restore();
+
+    cursorX += wWidth + spaceW;
+  });
+
+  ctx.restore();
 }
 
 function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages, sourceVideoEl) {
   const theme = THEMES[parsed.theme] || THEMES.dark;
-  const isLightTheme = parsed.theme === "light" || parsed.theme === "opus";
+  const isLightTheme = parsed.theme === "light";
   const minDim = Math.min(width, height);
   const videoReady = Boolean(
     sourceVideoEl && sourceVideoEl.readyState >= 2 && sourceVideoEl.videoWidth > 0
   );
 
-  // 1. Studio Animated Background
+  // 1. Clean Animated Background
   const grad = ctx.createLinearGradient(0, 0, width, height);
   grad.addColorStop(0, parsed.bgColor || theme.bg1);
   grad.addColorStop(1, parsed.bgColor || theme.bg2);
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, width, height);
 
-  // Ambient Moving Studio Glows
-  const glowX = width * (0.25 + 0.15 * Math.sin(currentTime * 0.7));
-  const glowY = height * (0.3 + 0.12 * Math.cos(currentTime * 0.5));
-  const rad1 = ctx.createRadialGradient(glowX, glowY, 10, glowX, glowY, width * 0.6);
-  rad1.addColorStop(0, `${theme.accent}${isLightTheme ? "22" : "35"}`);
+  const glowX = width * (0.25 + 0.15 * Math.sin(currentTime * 0.65));
+  const glowY = height * (0.3 + 0.12 * Math.cos(currentTime * 0.45));
+  const rad1 = ctx.createRadialGradient(glowX, glowY, 10, glowX, glowY, width * 0.58);
+  rad1.addColorStop(0, `${theme.accent}2e`);
   rad1.addColorStop(1, "transparent");
   ctx.fillStyle = rad1;
   ctx.fillRect(0, 0, width, height);
@@ -835,19 +940,19 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
     10,
     width - glowX * 0.6,
     height - glowY * 0.5,
-    width * 0.55
+    width * 0.52
   );
-  rad2.addColorStop(0, `${theme.accent2}${isLightTheme ? "1c" : "28"}`);
+  rad2.addColorStop(0, `${theme.accent2}24`);
   rad2.addColorStop(1, "transparent");
   ctx.fillStyle = rad2;
   ctx.fillRect(0, 0, width, height);
 
-  // Architectural Grid (Opus / Motion Studio Look)
+  // Subtle background grid
   ctx.save();
-  ctx.strokeStyle = isLightTheme ? "rgba(24,24,27,0.065)" : "rgba(255,255,255,0.045)";
+  ctx.strokeStyle = isLightTheme ? "rgba(15,23,42,0.05)" : "rgba(255,255,255,0.035)";
   ctx.lineWidth = 1;
-  const gridStep = Math.round(minDim / 11);
-  const offset = (currentTime * 16) % gridStep;
+  const gridStep = Math.round(minDim / 12);
+  const offset = (currentTime * 14) % gridStep;
   for (let x = -gridStep + offset; x < width + gridStep; x += gridStep) {
     ctx.beginPath();
     ctx.moveTo(x, 0);
@@ -862,20 +967,7 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
   }
   ctx.restore();
 
-  // Subtle Floating Depth Particles
-  ctx.save();
-  for (let i = 0; i < 14; i++) {
-    const px = (Math.sin(i * 12.7 + currentTime * 0.25) * 0.5 + 0.5) * width;
-    const py = ((i * 97 + currentTime * (14 + (i % 4) * 6)) % (height + 40)) - 20;
-    const pr = 1.5 + (i % 3);
-    ctx.fillStyle = i % 2 === 0 ? `${theme.accent}35` : `${theme.accent2}30`;
-    ctx.beginPath();
-    ctx.arc(px, height - py, pr, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.restore();
-
-  // 2. Render Active Cues
+  // 2. Active Cues
   const activeCues = parsed.cues.filter((c) => currentTime >= c.start && currentTime <= c.end);
 
   activeCues.forEach((cue) => {
@@ -883,207 +975,150 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
     const remaining = Math.max(0, cue.end - currentTime);
     const dur = Math.max(0.4, cue.end - cue.start);
     const normT = Math.min(1, elapsed / dur);
-    const inDur = Math.min(0.48, dur * 0.32);
-    const outDur = Math.min(0.24, dur * 0.18);
+    const inDur = Math.min(0.42, dur * 0.32);
+    const outDur = Math.min(0.22, dur * 0.18);
 
     const rawIn = Math.min(1, elapsed / inDur);
     const ease = easeOutCubic(rawIn);
     const spring = easeOutBack(rawIn);
     const fadeOut = remaining < outDur ? Math.max(0, remaining / outDur) : 1;
 
-    // --- FULL-SCREEN ORIGINAL VIDEO CUTAWAY (`video`) ---
+    // --- ORIGINAL VIDEO SCENE (`video`) ---
     if (cue.type === "video") {
       ctx.save();
-      ctx.globalAlpha = Math.min(1, Math.max(0, rawIn * 2.2) * fadeOut);
+      ctx.globalAlpha = Math.min(1, Math.max(0.2, rawIn * 2.5));
       if (videoReady) {
-        const kenBurns = 1.0 + normT * 0.06;
-        drawCoverVideo(ctx, sourceVideoEl, 0, 0, width, height, kenBurns);
-
-        const vig = ctx.createLinearGradient(0, height * 0.58, 0, height);
+        drawCoverMedia(
+          ctx,
+          sourceVideoEl,
+          sourceVideoEl.videoWidth,
+          sourceVideoEl.videoHeight,
+          0,
+          0,
+          width,
+          height,
+          1.0 + normT * 0.035
+        );
+        const vig = ctx.createLinearGradient(0, height * 0.62, 0, height);
         vig.addColorStop(0, "transparent");
-        vig.addColorStop(1, "rgba(0,0,0,0.78)");
+        vig.addColorStop(1, "rgba(0,0,0,0.72)");
         ctx.fillStyle = vig;
-        ctx.fillRect(0, height * 0.58, width, height * 0.42);
+        ctx.fillRect(0, height * 0.62, width, height * 0.38);
       } else {
-        const boxW = width * 0.8;
-        const boxH = minDim * 0.34;
-        ctx.fillStyle = theme.cardBg;
-        ctx.strokeStyle = theme.cardBorder;
-        ctx.lineWidth = 2.5;
-        drawRoundedRect(ctx, (width - boxW) / 2, (height - boxH) / 2, boxW, boxH, 24);
-        ctx.fill();
-        ctx.stroke();
-        ctx.fillStyle = theme.accent;
-        ctx.font = `800 ${Math.round(minDim * 0.045)}px Inter, system-ui, sans-serif`;
+        // If user hasn't attached original video yet, show clean kinetic text fallback
+        const fontSize = Math.round(minDim * 0.064);
+        ctx.font = `800 ${fontSize}px Inter, system-ui, sans-serif`;
+        ctx.fillStyle = theme.text;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText("ORIGINAL VIDEO CUTAWAY", width / 2, height / 2 - minDim * 0.04);
-        ctx.fillStyle = theme.sub;
-        ctx.font = `500 ${Math.round(minDim * 0.032)}px Inter, system-ui, sans-serif`;
-        ctx.fillText(
-          "Upload your Original Video (A-Roll) to show here",
-          width / 2,
-          height / 2 + minDim * 0.04
-        );
-      }
-
-      if (cue.sub) {
-        const capSize = Math.round(minDim * 0.044);
-        ctx.font = `800 ${capSize}px Inter, system-ui, sans-serif`;
-        const capLines = wrapCanvasText(ctx, cue.sub, width * 0.82);
-        const pillH = capLines.length * capSize * 1.3 + 26;
-        const pillW = Math.min(
-          width * 0.9,
-          Math.max(...capLines.map((l) => ctx.measureText(l).width)) + 52
-        );
-        const pillY = height * 0.84 - pillH / 2 + (1 - ease) * 24;
-        ctx.fillStyle = "rgba(9, 9, 15, 0.82)";
-        ctx.strokeStyle = `${theme.accent}99`;
-        ctx.lineWidth = 2;
-        drawRoundedRect(ctx, (width - pillW) / 2, pillY, pillW, pillH, 18);
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.fillStyle = "#ffffff";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        capLines.forEach((ln, idx) => {
-          ctx.fillText(ln, width / 2, pillY + 13 + (idx + 0.5) * capSize * 1.3);
-        });
+        const fallbackLines = wrapCanvasText(ctx, cue.sub || "Attach Original Video in Assets", width * 0.8);
+        const lh = fontSize * 1.25;
+        const sy = height * 0.42 - ((fallbackLines.length - 1) * lh) / 2;
+        fallbackLines.forEach((ln, i) => ctx.fillText(ln, width / 2, sy + i * lh));
       }
       ctx.restore();
+
+      // Animated Word-by-Word Bottom Captions
+      if (cue.sub) {
+        drawAnimatedBottomCaption(ctx, width, height, cue.sub, elapsed, dur, theme);
+      }
       return;
     }
 
-    // --- PICTURE-IN-PICTURE / SPLIT CREATOR MODE (`pip`) ---
-    if (cue.type === "pip") {
-      const isVertical = height > width;
+    // --- B-ROLL IMAGE SLOT (`image`) ---
+    if (cue.type === "image") {
+      const assetKey = String(cue.text || "").toLowerCase().trim();
+      const img = loadedImages[assetKey];
       ctx.save();
       ctx.globalAlpha = ease * fadeOut;
 
-      const vW = isVertical ? width * 0.82 : width * 0.44;
-      const vH = isVertical ? height * 0.36 : height * 0.62;
-      const vX = isVertical ? (width - vW) / 2 : width * 0.06;
-      const vY = isVertical ? height * 0.11 : (height - vH) / 2;
-
-      ctx.save();
-      ctx.shadowColor = "rgba(0,0,0,0.45)";
-      ctx.shadowBlur = 28;
-      drawRoundedRect(ctx, vX, vY + (1 - ease) * 20, vW, vH, 26);
-      ctx.fillStyle = "#090910";
-      ctx.fill();
-      ctx.restore();
-
-      ctx.save();
-      drawRoundedRect(ctx, vX, vY + (1 - ease) * 20, vW, vH, 26);
-      ctx.clip();
-      if (videoReady) {
-        drawCoverVideo(ctx, sourceVideoEl, vX, vY + (1 - ease) * 20, vW, vH, 1.0 + normT * 0.05);
+      if (img && img.complete && img.naturalWidth > 0) {
+        // Full-bleed crisp B-roll photo with smooth Ken Burns zoom
+        drawCoverMedia(
+          ctx,
+          img,
+          img.naturalWidth,
+          img.naturalHeight,
+          0,
+          0,
+          width,
+          height,
+          1.03 + normT * 0.07
+        );
+        const vig = ctx.createLinearGradient(0, height * 0.6, 0, height);
+        vig.addColorStop(0, "transparent");
+        vig.addColorStop(1, "rgba(0,0,0,0.78)");
+        ctx.fillStyle = vig;
+        ctx.fillRect(0, height * 0.6, width, height * 0.4);
       } else {
-        ctx.fillStyle = "#111122";
-        ctx.fillRect(vX, vY + (1 - ease) * 20, vW, vH);
-        ctx.fillStyle = theme.sub;
-        ctx.font = `600 ${Math.round(minDim * 0.034)}px Inter, system-ui, sans-serif`;
+        // Clean Empty Image Slot Placeholder Card (tells user exact slot name to upload)
+        const boxW = width * 0.82;
+        const boxH = height * 0.46;
+        const bx = (width - boxW) / 2;
+        const by = height * 0.19;
+
+        ctx.fillStyle = theme.cardBg;
+        ctx.strokeStyle = theme.accent;
+        ctx.lineWidth = 3;
+        ctx.setLineDash([12, 10]);
+        drawRoundedRect(ctx, bx, by, boxW, boxH, 28);
+        ctx.fill();
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Badge pill inside placeholder
+        const pillText = `IMAGE SLOT: ${assetKey.toUpperCase()}`;
+        ctx.font = `800 ${Math.round(minDim * 0.036)}px Inter, system-ui, sans-serif`;
+        const pw = Math.min(boxW * 0.85, ctx.measureText(pillText).width + 38);
+        const ph = Math.round(minDim * 0.078);
+        ctx.fillStyle = theme.accent;
+        drawRoundedRect(ctx, width / 2 - pw / 2, by + boxH * 0.32 - ph / 2, pw, ph, ph / 2);
+        ctx.fill();
+
+        ctx.fillStyle = "#09090f";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText("Upload Original Video for PiP", vX + vW / 2, vY + vH / 2);
-      }
-      ctx.restore();
+        ctx.fillText(pillText, width / 2, by + boxH * 0.32 + 1);
 
-      ctx.strokeStyle = theme.accent;
-      ctx.lineWidth = 3;
-      drawRoundedRect(ctx, vX, vY + (1 - ease) * 20, vW, vH, 26);
-      ctx.stroke();
+        ctx.fillStyle = theme.text;
+        ctx.font = `700 ${Math.round(minDim * 0.044)}px Inter, system-ui, sans-serif`;
+        ctx.fillText("Upload Image in Assets Tab", width / 2, by + boxH * 0.56);
 
-      const cX = isVertical ? width * 0.09 : width * 0.54;
-      const cW = isVertical ? width * 0.82 : width * 0.4;
-      const cH = isVertical ? height * 0.34 : height * 0.54;
-      const cY = isVertical ? height * 0.53 : (height - cH) / 2;
-      const slideOffset = (1 - ease) * 35;
-
-      ctx.fillStyle = theme.cardBg;
-      ctx.strokeStyle = theme.cardBorder;
-      ctx.lineWidth = 2.5;
-      drawRoundedRect(
-        ctx,
-        cX + (isVertical ? 0 : slideOffset),
-        cY + (isVertical ? slideOffset : 0),
-        cW,
-        cH,
-        26
-      );
-      ctx.fill();
-      ctx.stroke();
-
-      const cxCenter = cX + cW / 2 + (isVertical ? 0 : slideOffset);
-      const cyCenter = cY + cH / 2 + (isVertical ? slideOffset : 0);
-
-      ctx.fillStyle = theme.accent;
-      drawRoundedRect(
-        ctx,
-        cxCenter - cW * 0.16,
-        cY + 20 + (isVertical ? slideOffset : 0),
-        cW * 0.32,
-        6,
-        3
-      );
-      ctx.fill();
-
-      const tSize = Math.round(minDim * 0.058);
-      ctx.font = `900 ${tSize}px Inter, system-ui, sans-serif`;
-      ctx.fillStyle = cue.color || theme.text;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      const tLines = wrapCanvasText(ctx, cue.text, cW * 0.84);
-      const startY =
-        cyCenter - (cue.sub ? tSize * 0.6 : 0) - ((tLines.length - 1) * tSize * 1.15) / 2;
-      tLines.forEach((ln, i) => ctx.fillText(ln, cxCenter, startY + i * tSize * 1.18));
-
-      if (cue.sub) {
-        const sSize = Math.round(minDim * 0.036);
-        ctx.font = `500 ${sSize}px Inter, system-ui, sans-serif`;
         ctx.fillStyle = theme.sub;
-        const sLines = wrapCanvasText(ctx, cue.sub, cW * 0.84);
-        const sStart = startY + tLines.length * tSize * 1.18 + 14;
-        sLines.forEach((ln, i) => ctx.fillText(ln, cxCenter, sStart + i * sSize * 1.32));
+        ctx.font = `500 ${Math.round(minDim * 0.032)}px Inter, system-ui, sans-serif`;
+        ctx.fillText("AI image prompt is ready below this slot", width / 2, by + boxH * 0.68);
       }
-
       ctx.restore();
+
+      // Animated Word-by-Word Bottom Captions over Image B-Roll
+      if (cue.sub) {
+        drawAnimatedBottomCaption(ctx, width, height, cue.sub, elapsed, dur, theme);
+      }
       return;
     }
 
-    // Standard Transform Calculations for Motion Graphics Cues
+    // --- CLEAN TEXT / BADGE / STAT / CARD CUES ---
     let alpha = ease * fadeOut;
     let offsetX = 0;
     let offsetY = 0;
     let scale = 1;
-    let displayMain = cue.text;
 
     switch (cue.anim) {
       case "fadeUp":
         offsetY = (1 - ease) * (minDim * 0.07);
         break;
       case "pop":
-        scale = 0.78 + 0.22 * spring;
+        scale = 0.8 + 0.2 * spring;
         break;
       case "slideLeft":
-        offsetX = (1 - ease) * (width * 0.2);
+        offsetX = (1 - ease) * (width * 0.18);
         break;
       case "slideRight":
-        offsetX = -(1 - ease) * (width * 0.2);
+        offsetX = -(1 - ease) * (width * 0.18);
         break;
       case "zoomIn":
-        scale = 0.86 + 0.14 * ease + normT * 0.03;
+        scale = 0.88 + 0.12 * ease + normT * 0.03;
         break;
-      case "typewriter": {
-        const chars = Math.max(
-          1,
-          Math.floor(cue.text.length * Math.min(1, elapsed / Math.min(1.4, dur * 0.65)))
-        );
-        displayMain = cue.text.slice(0, chars);
-        alpha = fadeOut;
-        break;
-      }
       case "none":
         alpha = 1;
         break;
@@ -1091,650 +1126,47 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
         break;
     }
 
+    const hasBottomCap = Boolean(cue.sub && cue.type !== "text");
     const centerY =
-      cue.pos === "top" ? height * 0.25 : cue.pos === "bottom" ? height * 0.75 : height * 0.5;
+      cue.pos === "top"
+        ? height * 0.26
+        : cue.pos === "bottom"
+        ? height * 0.72
+        : hasBottomCap
+        ? height * 0.43
+        : height * 0.48;
 
     ctx.save();
     ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
     ctx.translate(width / 2 + offsetX, centerY + offsetY);
     ctx.scale(scale, scale);
 
-    const sizeMult = cue.size === "small" ? 0.78 : cue.size === "medium" ? 0.9 : 1;
+    const sizeMult = cue.size === "small" ? 0.8 : cue.size === "medium" ? 0.9 : 1;
     const textColor = cue.color || theme.text;
     const maxTextWidth = width * 0.84;
 
-    // --- 1. ANIMATED SEARCH / PROMPT BAR WITH CURSOR CLICK (`search`) ---
-    if (cue.type === "search") {
-      const barW = Math.min(width * 0.84, 760);
-      const barH = Math.round(minDim * 0.125);
-      const barY = -barH * 0.8;
-      const barR = barH / 2;
-
-      if (cue.sub) {
-        ctx.font = `700 ${Math.round(minDim * 0.036)}px Inter, system-ui, sans-serif`;
-        ctx.fillStyle = theme.accent;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(cue.sub.toUpperCase(), 0, barY - minDim * 0.07);
-      }
-
-      ctx.save();
-      ctx.shadowColor = "rgba(0,0,0,0.38)";
-      ctx.shadowBlur = 30;
-      ctx.shadowOffsetY = 12;
-      ctx.fillStyle = "#111116";
-      drawRoundedRect(ctx, -barW / 2, barY, barW, barH, barR);
-      ctx.fill();
-      ctx.restore();
-
-      ctx.strokeStyle = `${theme.accent}66`;
-      ctx.lineWidth = 2;
-      drawRoundedRect(ctx, -barW / 2, barY, barW, barH, barR);
-      ctx.stroke();
-
-      const typeFrac = Math.min(1, elapsed / Math.min(1.1, dur * 0.42));
-      const typedCount = Math.max(1, Math.floor(cue.text.length * typeFrac));
-      const typed = cue.text.slice(0, typedCount);
-      const showCaret = typeFrac < 1 || Math.floor(elapsed * 3) % 2 === 0;
-
-      ctx.font = `600 ${Math.round(minDim * 0.044)}px Inter, system-ui, sans-serif`;
-      ctx.fillStyle = "#ffffff";
-      ctx.textAlign = "left";
-      ctx.textBaseline = "middle";
-      ctx.fillText(
-        typed + (showCaret && normT < 0.58 ? "|" : ""),
-        -barW / 2 + barH * 0.42,
-        barY + barH / 2
-      );
-
-      const orbX = barW / 2 - barH * 0.52;
-      const orbY = barY + barH / 2;
-      const orbR = barH * 0.34;
-      const clickTime = dur * 0.52;
-      const clicked = elapsed >= clickTime;
-      const clickProgress = clicked ? Math.min(1, (elapsed - clickTime) / 0.5) : 0;
-      const orbScale = clicked ? 1 - Math.sin(clickProgress * Math.PI) * 0.16 : 1;
-
-      if (clicked && clickProgress < 1) {
-        ctx.save();
-        ctx.globalAlpha = (1 - clickProgress) * 0.7;
-        ctx.strokeStyle = theme.accent;
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(orbX, orbY, orbR * (1 + clickProgress * 1.9), 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      const orbGrad = ctx.createRadialGradient(orbX, orbY, 2, orbX, orbY, orbR * orbScale);
-      orbGrad.addColorStop(0, "#fff7ed");
-      orbGrad.addColorStop(0.5, theme.accent);
-      orbGrad.addColorStop(1, "#c2410c");
-      ctx.fillStyle = orbGrad;
-      ctx.beginPath();
-      ctx.arc(orbX, orbY, orbR * orbScale, 0, Math.PI * 2);
-      ctx.fill();
-
-      if (clicked) {
-        const cardCount = 3;
-        const gap = minDim * 0.035;
-        const cW = Math.min(barW * 0.29, minDim * 0.24);
-        const cH = cW * 1.05;
-        const totalRowW = cardCount * cW + (cardCount - 1) * gap;
-        const rowY = barY + barH + minDim * 0.08;
-
-        for (let i = 0; i < cardCount; i++) {
-          const itemDelay = i * 0.08;
-          const itemT = Math.min(1, Math.max(0, (elapsed - clickTime - itemDelay) / 0.45));
-          const itemEase = easeOutBack(itemT);
-          if (itemT <= 0) continue;
-
-          const cx = -totalRowW / 2 + i * (cW + gap) + cW / 2;
-          const cy = rowY + cH / 2 + (1 - itemEase) * 45;
-
-          ctx.save();
-          ctx.strokeStyle = `${theme.accent}66`;
-          ctx.setLineDash([4, 5]);
-          ctx.lineWidth = 1.5;
-          ctx.beginPath();
-          ctx.moveTo(0, barY + barH + 4);
-          ctx.quadraticCurveTo(cx * 0.5, rowY - 10, cx, cy - cH / 2);
-          ctx.stroke();
-          ctx.restore();
-
-          ctx.save();
-          ctx.globalAlpha = Math.min(1, itemT * 2);
-          ctx.shadowColor = "rgba(0,0,0,0.22)";
-          ctx.shadowBlur = 18;
-          ctx.fillStyle = theme.cardBg;
-          ctx.strokeStyle = theme.cardBorder;
-          ctx.lineWidth = 2;
-          drawRoundedRect(
-            ctx,
-            cx - (cW * itemEase) / 2,
-            cy - (cH * itemEase) / 2,
-            cW * itemEase,
-            cH * itemEase,
-            18
-          );
-          ctx.fill();
-          ctx.stroke();
-
-          drawStarburst(
-            ctx,
-            cx,
-            cy,
-            8,
-            cW * 0.24 * itemEase,
-            cW * 0.07 * itemEase,
-            currentTime * 0.9 + i,
-            theme.accent
-          );
-          ctx.restore();
-        }
-      }
-
-      const cursorAppear = Math.min(1, Math.max(0, (elapsed - dur * 0.22) / (dur * 0.28)));
-      if (cursorAppear > 0) {
-        const ce = easeOutCubic(cursorAppear);
-        const startX = orbX + minDim * 0.24;
-        const startY = orbY + minDim * 0.24;
-        const curX = startX + (orbX - startX) * ce;
-        const curY = startY + (orbY - startY) * ce;
-        const curScale = clicked && clickProgress < 0.35 ? 0.85 : 1;
-
-        ctx.save();
-        ctx.translate(curX, curY);
-        ctx.scale(curScale, curScale);
-        ctx.fillStyle = "#09090f";
-        ctx.strokeStyle = "#ffffff";
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.lineTo(0, 32);
-        ctx.lineTo(9, 24);
-        ctx.lineTo(16, 36);
-        ctx.lineTo(22, 33);
-        ctx.lineTo(15, 21);
-        ctx.lineTo(25, 21);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-        ctx.restore();
-      }
-    }
-
-    // --- 2. ANIMATED LINE CHART WITH RIDING GLOWING ORB (`chart`) ---
-    else if (cue.type === "chart") {
-      const nums = String(cue.sub || "")
-        .split(/[,|\s]+/)
-        .map((n) => parseFloat(n))
-        .filter((n) => !Number.isNaN(n));
-      const pts = nums.length >= 3 ? nums.slice(0, 8) : [25, 68, 38, 84, 54, 96];
-      const minV = Math.min(...pts, 0);
-      const maxV = Math.max(...pts, 100);
-      const span = Math.max(1, maxV - minV);
-
-      const chartW = Math.min(width * 0.82, 840);
-      const chartH = minDim * 0.4;
-      const leftX = -chartW / 2;
-      const topY = -chartH / 2 + minDim * 0.05;
-
-      ctx.font = `800 ${Math.round(minDim * 0.06)}px Inter, system-ui, sans-serif`;
-      ctx.fillStyle = textColor;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(cue.text, 0, topY - minDim * 0.11);
-
-      const coords = pts.map((v, i) => ({
-        x: leftX + (i / (pts.length - 1)) * chartW,
-        y: topY + chartH - ((v - minV) / span) * chartH,
-        val: v,
-      }));
-
-      ctx.save();
-      ctx.strokeStyle = isLightTheme ? "rgba(24,24,27,0.1)" : "rgba(255,255,255,0.08)";
-      ctx.lineWidth = 1;
-      for (let g = 0; g <= 4; g++) {
-        const gy = topY + (g / 4) * chartH;
-        ctx.beginPath();
-        ctx.moveTo(leftX, gy);
-        ctx.lineTo(leftX + chartW, gy);
-        ctx.stroke();
-      }
-      ctx.restore();
-
-      const drawProgress = easeOutCubic(Math.min(1, elapsed / Math.max(0.9, dur * 0.78)));
-      const segFloat = drawProgress * (coords.length - 1);
-      const activeSegIdx = Math.min(coords.length - 2, Math.floor(segFloat));
-      const segFrac = segFloat - activeSegIdx;
-
-      const ballX =
-        coords[activeSegIdx].x + (coords[activeSegIdx + 1].x - coords[activeSegIdx].x) * segFrac;
-      const ballY =
-        coords[activeSegIdx].y + (coords[activeSegIdx + 1].y - coords[activeSegIdx].y) * segFrac;
-
-      ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(coords[0].x, topY + chartH);
-      ctx.lineTo(coords[0].x, coords[0].y);
-      for (let i = 1; i <= activeSegIdx; i++) {
-        ctx.lineTo(coords[i].x, coords[i].y);
-      }
-      ctx.lineTo(ballX, ballY);
-      ctx.lineTo(ballX, topY + chartH);
-      ctx.closePath();
-      const areaGrad = ctx.createLinearGradient(0, topY, 0, topY + chartH);
-      areaGrad.addColorStop(0, `${theme.accent}44`);
-      areaGrad.addColorStop(1, "transparent");
-      ctx.fillStyle = areaGrad;
-      ctx.fill();
-      ctx.restore();
-
-      ctx.save();
-      ctx.strokeStyle = isLightTheme ? "rgba(24,24,27,0.16)" : "rgba(255,255,255,0.14)";
-      ctx.lineWidth = 3;
-      ctx.setLineDash([6, 6]);
-      ctx.beginPath();
-      coords.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
-      ctx.stroke();
-      ctx.restore();
-
-      ctx.save();
-      ctx.strokeStyle = cue.color || theme.accent;
-      ctx.lineWidth = 5;
-      ctx.lineJoin = "round";
-      ctx.lineCap = "round";
-      ctx.shadowColor = theme.accent;
-      ctx.shadowBlur = 16;
-      ctx.beginPath();
-      ctx.moveTo(coords[0].x, coords[0].y);
-      for (let i = 1; i <= activeSegIdx; i++) {
-        ctx.lineTo(coords[i].x, coords[i].y);
-      }
-      ctx.lineTo(ballX, ballY);
-      ctx.stroke();
-      ctx.restore();
-
-      coords.forEach((p, i) => {
-        const reached = i <= segFloat + 0.05;
-        drawDiamond(
-          ctx,
-          p.x,
-          p.y,
-          reached ? 9 : 7,
-          reached ? theme.accent : isLightTheme ? "#18181b" : "#334155",
-          reached ? "#ffffff" : null
-        );
-      });
-
-      const orbR = Math.round(minDim * 0.038);
-      ctx.save();
-      ctx.shadowColor = theme.accent;
-      ctx.shadowBlur = 28;
-      const gOrb = ctx.createRadialGradient(
-        ballX - orbR * 0.25,
-        ballY - orbR * 0.25,
-        2,
-        ballX,
-        ballY,
-        orbR
-      );
-      gOrb.addColorStop(0, "#ffffff");
-      gOrb.addColorStop(0.45, theme.accent);
-      gOrb.addColorStop(1, theme.accent2);
-      ctx.fillStyle = gOrb;
-      ctx.beginPath();
-      ctx.arc(ballX, ballY, orbR, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    }
-
-    // --- 3. RADIATING STARBURST HUB + CONNECTED UI CARDS (`hub`) ---
-    else if (cue.type === "hub") {
-      const items = String(cue.sub || "Idea|Design|Motion|Launch")
-        .split(/[|,]+/)
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .slice(0, 4);
-      while (items.length < 4) items.push(`Step ${items.length + 1}`);
-
-      const hubY = -minDim * 0.05;
-      const spreadX = Math.min(width * 0.3, minDim * 0.3);
-      const spreadY = minDim * 0.2;
-      const cardW = Math.min(width * 0.36, minDim * 0.32);
-      const cardH = minDim * 0.135;
-
-      const positions = [
-        { x: -spreadX, y: hubY - spreadY },
-        { x: spreadX, y: hubY - spreadY },
-        { x: -spreadX, y: hubY + spreadY },
-        { x: spreadX, y: hubY + spreadY },
-      ];
-
-      positions.forEach((pos, i) => {
-        const lineT = easeOutCubic(Math.min(1, Math.max(0, (elapsed - i * 0.1) / 0.45)));
-        if (lineT <= 0) return;
-        ctx.save();
-        ctx.strokeStyle = `${theme.accent}99`;
-        ctx.lineWidth = 2.5;
-        ctx.setLineDash([6, 6]);
-        ctx.lineDashOffset = -currentTime * 28;
-        ctx.beginPath();
-        ctx.moveTo(0, hubY);
-        ctx.quadraticCurveTo(
-          pos.x * 0.45 * lineT,
-          hubY,
-          pos.x * lineT,
-          hubY + (pos.y - hubY) * lineT
-        );
-        ctx.stroke();
-        ctx.restore();
-      });
-
-      const coreR = minDim * 0.11;
-      const coreGlow = ctx.createRadialGradient(0, hubY, 4, 0, hubY, coreR * 1.9);
-      coreGlow.addColorStop(0, `${theme.accent}88`);
-      coreGlow.addColorStop(1, "transparent");
-      ctx.fillStyle = coreGlow;
-      ctx.beginPath();
-      ctx.arc(0, hubY, coreR * 1.9, 0, Math.PI * 2);
-      ctx.fill();
-
-      drawStarburst(
-        ctx,
-        0,
-        hubY,
-        12,
-        coreR,
-        coreR * 0.24,
-        currentTime * 0.7,
-        cue.color || theme.accent
-      );
-
-      positions.forEach((pos, i) => {
-        const cardT = Math.min(1, Math.max(0, (elapsed - 0.15 - i * 0.12) / 0.45));
-        if (cardT <= 0) return;
-        const cScale = easeOutBack(cardT);
-        ctx.save();
-        ctx.translate(pos.x, pos.y);
-        ctx.scale(cScale, cScale);
-        ctx.shadowColor = "rgba(0,0,0,0.28)";
-        ctx.shadowBlur = 18;
-        ctx.fillStyle = theme.cardBg;
-        ctx.strokeStyle = theme.cardBorder;
-        ctx.lineWidth = 2.5;
-        drawRoundedRect(ctx, -cardW / 2, -cardH / 2, cardW, cardH, 18);
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = textColor;
-        ctx.font = `800 ${Math.round(minDim * 0.038)}px Inter, system-ui, sans-serif`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        const ln = wrapCanvasText(ctx, items[i], cardW * 0.84)[0];
-        ctx.fillText(ln, 0, 0);
-        ctx.restore();
-      });
-
-      ctx.font = `900 ${Math.round(minDim * 0.062)}px Inter, system-ui, sans-serif`;
-      ctx.fillStyle = textColor;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(cue.text, 0, hubY + spreadY + cardH * 0.95);
-    }
-
-    // --- 4. ORBITAL PROGRESS RINGS + GLOWING CENTER SPHERE (`orbit`) ---
-    else if (cue.type === "orbit") {
-      const cy = -minDim * 0.07;
-      const outerR = minDim * 0.21;
-      const innerR = minDim * 0.14;
-
-      ctx.save();
-      ctx.strokeStyle = isLightTheme ? "rgba(24,24,27,0.14)" : "rgba(255,255,255,0.12)";
-      ctx.lineWidth = 5;
-      ctx.beginPath();
-      ctx.arc(0, cy, outerR, 0, Math.PI * 2);
-      ctx.stroke();
-
-      ctx.lineWidth = 3;
-      ctx.setLineDash([8, 8]);
-      ctx.beginPath();
-      ctx.arc(0, cy, innerR, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
-
-      const arcAngle =
-        easeOutCubic(Math.min(1, elapsed / Math.max(0.8, dur * 0.7))) * Math.PI * 1.65;
-      const startA = -Math.PI / 2 + currentTime * 0.8;
-      ctx.save();
-      ctx.strokeStyle = cue.color || theme.accent;
-      ctx.lineWidth = 7;
-      ctx.lineCap = "round";
-      ctx.shadowColor = theme.accent;
-      ctx.shadowBlur = 18;
-      ctx.beginPath();
-      ctx.arc(0, cy, outerR, startA, startA + arcAngle);
-      ctx.stroke();
-      ctx.restore();
-
-      for (let i = 0; i < 4; i++) {
-        const a = startA + (i * Math.PI) / 2;
-        const dx = Math.cos(a) * outerR;
-        const dy = cy + Math.sin(a) * outerR;
-        drawDiamond(
-          ctx,
-          dx,
-          dy,
-          i === 0 ? 10 : 7,
-          i % 2 === 0 ? theme.accent : theme.accent2,
-          "#ffffff"
-        );
-      }
-
-      const sphereR = minDim * 0.085;
-      const pulse = 1 + Math.sin(currentTime * 4) * 0.04;
-      ctx.save();
-      ctx.shadowColor = theme.accent;
-      ctx.shadowBlur = 30;
-      const sg = ctx.createRadialGradient(
-        -sphereR * 0.25,
-        cy - sphereR * 0.25,
-        3,
-        0,
-        cy,
-        sphereR * pulse
-      );
-      sg.addColorStop(0, "#ffffff");
-      sg.addColorStop(0.5, theme.accent);
-      sg.addColorStop(1, theme.accent2);
-      ctx.fillStyle = sg;
-      ctx.beginPath();
-      ctx.arc(0, cy, sphereR * pulse, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-
-      drawStarburst(
-        ctx,
-        0,
-        cy,
-        8,
-        sphereR * 0.45,
-        sphereR * 0.14,
-        -currentTime * 1.2,
-        "#ffffff"
-      );
-
-      ctx.font = `900 ${Math.round(minDim * 0.066)}px Inter, system-ui, sans-serif`;
-      ctx.fillStyle = textColor;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(cue.text, 0, cy + outerR + minDim * 0.11);
-
-      if (cue.sub) {
-        ctx.font = `600 ${Math.round(minDim * 0.038)}px Inter, system-ui, sans-serif`;
-        ctx.fillStyle = theme.sub;
-        ctx.fillText(cue.sub, 0, cy + outerR + minDim * 0.185);
-      }
-    }
-
-    // --- 5. ANIMATED COMPARISON BAR CHART (`bars`) ---
-    else if (cue.type === "bars") {
-      const pairs = String(cue.sub || "Before:28|After:95")
-        .split(/[|,]+/)
-        .map((chunk, idx) => {
-          const [lbl, valRaw] = chunk.split(":");
-          const val = parseFloat(valRaw);
-          return {
-            label: (lbl || `Item ${idx + 1}`).trim(),
-            val: Number.isNaN(val) ? (idx + 1) * 35 : Math.max(5, Math.min(100, val)),
-          };
-        })
-        .slice(0, 4);
-
-      const chartW = Math.min(width * 0.78, 720);
-      const maxBarH = minDim * 0.36;
-      const baseY = minDim * 0.18;
-      const barGap = minDim * 0.06;
-      const barW = Math.min(minDim * 0.18, (chartW - barGap * (pairs.length - 1)) / pairs.length);
-      const totalW = pairs.length * barW + (pairs.length - 1) * barGap;
-
-      ctx.font = `900 ${Math.round(minDim * 0.062)}px Inter, system-ui, sans-serif`;
-      ctx.fillStyle = textColor;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(cue.text, 0, baseY - maxBarH - minDim * 0.11);
-
-      ctx.strokeStyle = isLightTheme ? "rgba(24,24,27,0.2)" : "rgba(255,255,255,0.2)";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(-totalW / 2 - 20, baseY);
-      ctx.lineTo(totalW / 2 + 20, baseY);
-      ctx.stroke();
-
-      pairs.forEach((item, i) => {
-        const bProgress = easeOutBack(Math.min(1, Math.max(0, (elapsed - i * 0.15) / 0.75)));
-        const h = Math.max(12, (item.val / 100) * maxBarH * Math.min(1.06, bProgress));
-        const bx = -totalW / 2 + i * (barW + barGap);
-        const by = baseY - h;
-        const isLast = i === pairs.length - 1;
-
-        const bg = ctx.createLinearGradient(0, by, 0, baseY);
-        bg.addColorStop(0, isLast ? theme.accent : theme.accent2);
-        bg.addColorStop(1, isLast ? `${theme.accent}66` : `${theme.accent2}44`);
-        ctx.fillStyle = bg;
-        drawRoundedRect(ctx, bx, by, barW, h, 14);
-        ctx.fill();
-
-        const liveNum = Math.round(
-          item.val * Math.min(1, Math.max(0, (elapsed - i * 0.15) / 0.65))
-        );
-        ctx.font = `800 ${Math.round(minDim * 0.044)}px Inter, system-ui, sans-serif`;
-        ctx.fillStyle = isLast ? theme.accent : textColor;
-        ctx.textAlign = "center";
-        ctx.fillText(`${liveNum}%`, bx + barW / 2, by - minDim * 0.038);
-
-        ctx.font = `700 ${Math.round(minDim * 0.036)}px Inter, system-ui, sans-serif`;
-        ctx.fillStyle = theme.sub;
-        ctx.fillText(item.label, bx + barW / 2, baseY + minDim * 0.05);
-      });
-    }
-
-    // --- 6. IMAGE ASSET (`image`) ---
-    else if (cue.type === "image") {
-      const img = loadedImages[cue.text.toLowerCase()];
-      if (img && img.complete && img.naturalWidth > 0) {
-        const targetW = width * 0.74;
-        const targetH = height * 0.56;
-        const imgRatio = img.naturalWidth / img.naturalHeight;
-        let drawW = targetW;
-        let drawH = targetW / imgRatio;
-        if (drawH > targetH) {
-          drawH = targetH;
-          drawW = targetH * imgRatio;
-        }
-        drawRoundedRect(ctx, -drawW / 2, -drawH / 2, drawW, drawH, 24);
-        ctx.save();
-        ctx.clip();
-        ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
-        ctx.restore();
-        ctx.strokeStyle = theme.cardBorder;
-        ctx.lineWidth = 3;
-        drawRoundedRect(ctx, -drawW / 2, -drawH / 2, drawW, drawH, 24);
-        ctx.stroke();
-      } else {
-        const boxW = width * 0.68;
-        const boxH = minDim * 0.28;
-        ctx.fillStyle = theme.cardBg;
-        ctx.strokeStyle = theme.cardBorder;
-        ctx.lineWidth = 2;
-        drawRoundedRect(ctx, -boxW / 2, -boxH / 2, boxW, boxH, 20);
-        ctx.fill();
-        ctx.stroke();
-        ctx.fillStyle = theme.sub;
-        ctx.font = `600 ${Math.round(minDim * 0.036)}px Inter, system-ui, sans-serif`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(`Upload image "${cue.text}" in Assets tab`, 0, 0);
-      }
-    }
-
-    // --- 7. ANIMATED STAT COUNTER (`stat`) ---
-    else if (cue.type === "stat") {
-      const countProgress = Math.min(1, elapsed / Math.min(1.1, dur * 0.55));
-      const animatedVal = animateStatNumber(displayMain, countProgress);
-
-      const statSize = Math.round(minDim * 0.125 * sizeMult);
+    if (cue.type === "stat") {
+      const statSize = Math.round(minDim * 0.13 * sizeMult);
       ctx.font = `900 ${statSize}px Inter, system-ui, sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-
       const statGrad = ctx.createLinearGradient(-width * 0.3, 0, width * 0.3, 0);
       statGrad.addColorStop(0, cue.color || theme.accent);
       statGrad.addColorStop(1, theme.accent2);
       ctx.fillStyle = statGrad;
-
-      const statLines = wrapCanvasText(ctx, animatedVal, maxTextWidth);
+      const statLines = wrapCanvasText(ctx, cue.text, maxTextWidth);
       const lineH = statSize * 1.12;
-      const startY = -((statLines.length - 1) * lineH) / 2 - (cue.sub ? minDim * 0.045 : 0);
-
-      statLines.forEach((ln, i) => {
-        ctx.fillText(ln, 0, startY + i * lineH);
-      });
-
-      if (cue.sub) {
-        const subSize = Math.round(minDim * 0.044 * sizeMult);
-        ctx.font = `600 ${subSize}px Inter, system-ui, sans-serif`;
-        ctx.fillStyle = theme.sub;
-        const subLines = wrapCanvasText(ctx, cue.sub, maxTextWidth * 0.9);
-        const subStart = startY + statLines.length * lineH + minDim * 0.03;
-        subLines.forEach((ln, i) => {
-          ctx.fillText(ln, 0, subStart + i * subSize * 1.3);
-        });
-      }
-    }
-
-    // --- 8. FLOATING GLASS CARD (`card`) ---
-    else if (cue.type === "card") {
-      const floatY = Math.sin(currentTime * 2.4) * 5;
+      const startY = -((statLines.length - 1) * lineH) / 2;
+      statLines.forEach((ln, i) => ctx.fillText(ln, 0, startY + i * lineH));
+    } else if (cue.type === "card") {
       const titleSize = Math.round(minDim * 0.064 * sizeMult);
-      const subSize = Math.round(minDim * 0.038 * sizeMult);
       ctx.font = `800 ${titleSize}px Inter, system-ui, sans-serif`;
-      const titleLines = wrapCanvasText(ctx, displayMain, width * 0.72);
-      ctx.font = `500 ${subSize}px Inter, system-ui, sans-serif`;
-      const subLines = cue.sub ? wrapCanvasText(ctx, cue.sub, width * 0.72) : [];
-
-      const padY = minDim * 0.065;
+      const titleLines = wrapCanvasText(ctx, cue.text, width * 0.74);
+      const padY = minDim * 0.07;
       const cardW = width * 0.84;
-      const cardH =
-        padY * 2 +
-        titleLines.length * titleSize * 1.2 +
-        (subLines.length ? subLines.length * subSize * 1.35 + minDim * 0.03 : 0);
+      const cardH = padY * 2 + titleLines.length * titleSize * 1.24;
 
-      ctx.save();
-      ctx.translate(0, floatY);
-      ctx.shadowColor = "rgba(0,0,0,0.3)";
+      ctx.shadowColor = "rgba(0,0,0,0.32)";
       ctx.shadowBlur = 24;
       ctx.fillStyle = theme.cardBg;
       ctx.strokeStyle = theme.cardBorder;
@@ -1751,91 +1183,52 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillStyle = textColor;
-      ctx.font = `800 ${titleSize}px Inter, system-ui, sans-serif`;
-      let yCursor = -cardH / 2 + padY + titleSize * 0.55;
+      let yCursor = -((titleLines.length - 1) * titleSize * 1.24) / 2 + 6;
       titleLines.forEach((ln) => {
         ctx.fillText(ln, 0, yCursor);
-        yCursor += titleSize * 1.2;
+        yCursor += titleSize * 1.24;
       });
-
-      if (subLines.length) {
-        yCursor += minDim * 0.02;
-        ctx.fillStyle = theme.sub;
-        ctx.font = `500 ${subSize}px Inter, system-ui, sans-serif`;
-        subLines.forEach((ln) => {
-          ctx.fillText(ln, 0, yCursor);
-          yCursor += subSize * 1.35;
-        });
-      }
-      ctx.restore();
-    }
-
-    // --- 9. HIGH-IMPACT BADGE HOOK (`badge`) ---
-    else if (cue.type === "badge") {
-      const badgeFontSize = Math.round(minDim * 0.038 * sizeMult);
-      ctx.font = `800 ${badgeFontSize}px Inter, system-ui, sans-serif`;
-      const pillText = displayMain.toUpperCase();
-      const pillW = Math.min(width * 0.8, ctx.measureText(pillText).width + minDim * 0.1);
-      const pillH = badgeFontSize * 2.1;
-      const pillY = cue.sub ? -minDim * 0.11 : -pillH / 2;
+    } else if (cue.type === "badge") {
+      const badgeFontSize = Math.round(minDim * 0.044 * sizeMult);
+      ctx.font = `900 ${badgeFontSize}px Inter, system-ui, sans-serif`;
+      const pillText = cue.text.toUpperCase();
+      const pillW = Math.min(width * 0.84, ctx.measureText(pillText).width + minDim * 0.12);
+      const pillH = badgeFontSize * 2.2;
 
       ctx.fillStyle = cue.color || theme.accent;
-      drawRoundedRect(ctx, -pillW / 2, pillY, pillW, pillH, pillH / 2);
+      drawRoundedRect(ctx, -pillW / 2, -pillH / 2, pillW, pillH, pillH / 2);
       ctx.fill();
 
       ctx.fillStyle = "#09090f";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(pillText, 0, pillY + pillH / 2 + 1);
-
-      if (cue.sub) {
-        const headlineSize = Math.round(minDim * 0.068 * sizeMult);
-        ctx.font = `800 ${headlineSize}px Inter, system-ui, sans-serif`;
-        ctx.fillStyle = textColor;
-        const lines = wrapCanvasText(ctx, cue.sub, maxTextWidth);
-        const startY = pillY + pillH + minDim * 0.075;
-        lines.forEach((ln, i) => {
-          ctx.fillText(ln, 0, startY + i * headlineSize * 1.22);
-        });
-      }
-    }
-
-    // --- 10. KINETIC TEXT (`text`) ---
-    else {
-      const fontSize = Math.round(minDim * 0.074 * sizeMult);
+      ctx.fillText(pillText, 0, 1);
+    } else {
+      // Clean animated text (also plays smoothly with animated bottom caption if sub is present)
+      const fontSize = Math.round(minDim * 0.072 * sizeMult);
       ctx.font = `800 ${fontSize}px Inter, system-ui, sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillStyle = textColor;
       ctx.shadowColor = isLightTheme ? "rgba(0,0,0,0.08)" : "rgba(0,0,0,0.45)";
-      ctx.shadowBlur = 18;
+      ctx.shadowBlur = 16;
 
-      const lines = wrapCanvasText(ctx, displayMain, maxTextWidth);
+      const lines = wrapCanvasText(ctx, cue.text, maxTextWidth);
       const lineH = fontSize * 1.24;
-      const startY = -((lines.length - 1) * lineH) / 2 - (cue.sub ? minDim * 0.03 : 0);
-      lines.forEach((ln, i) => {
-        ctx.fillText(ln, 0, startY + i * lineH);
-      });
-
-      if (cue.sub) {
-        ctx.shadowBlur = 0;
-        const subSize = Math.round(minDim * 0.04 * sizeMult);
-        ctx.font = `500 ${subSize}px Inter, system-ui, sans-serif`;
-        ctx.fillStyle = theme.sub;
-        const subLines = wrapCanvasText(ctx, cue.sub, maxTextWidth);
-        const subStart = startY + lines.length * lineH + minDim * 0.025;
-        subLines.forEach((ln, i) => {
-          ctx.fillText(ln, 0, subStart + i * subSize * 1.3);
-        });
-      }
+      const startY = -((lines.length - 1) * lineH) / 2;
+      lines.forEach((ln, i) => ctx.fillText(ln, 0, startY + i * lineH));
     }
-
     ctx.restore();
+
+    // Render crisp animated bottom caption whenever `sub` exists
+    if (cue.sub) {
+      drawAnimatedBottomCaption(ctx, width, height, cue.sub, elapsed, dur, theme);
+    }
   });
 
   // Bottom Progress Line
   const progress = parsed.totalDuration > 0 ? Math.min(1, currentTime / parsed.totalDuration) : 0;
-  ctx.fillStyle = isLightTheme ? "rgba(24,24,27,0.12)" : "rgba(255,255,255,0.12)";
+  ctx.fillStyle = isLightTheme ? "rgba(15,23,42,0.12)" : "rgba(255,255,255,0.12)";
   ctx.fillRect(0, height - 6, width, 6);
   ctx.fillStyle = theme.accent;
   ctx.fillRect(0, height - 6, width * progress, 6);
@@ -1860,12 +1253,11 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
   const [projectTitle, setProjectTitle] = useState("Untitled Motion Edit");
   const [formatId, setFormatId] = useState("9:16");
   const [fps, setFps] = useState(30);
-  const [editStyleId, setEditStyleId] = useState("pro_creator_hybrid");
-  const [mixOriginalVideo, setMixOriginalVideo] = useState(true);
+  const [editStyleId, setEditStyleId] = useState("video_captions_broll");
   const [themeId, setThemeId] = useState("dark");
   const [recipeDraft, setRecipeDraft] = useState("");
   const [appliedRecipe, setAppliedRecipe] = useState("");
-  const [workspaceTab, setWorkspaceTab] = useState("code"); // timeline | code | assets
+  const [workspaceTab, setWorkspaceTab] = useState("assets"); // timeline | code | assets
   const [history, setHistory] = useState([]);
   const [future, setFuture] = useState([]);
 
@@ -1876,17 +1268,18 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
   const [exportLabel, setExportLabel] = useState("");
   const [videoSeekTick, setVideoSeekTick] = useState(0);
 
-  // Assets (Original Video A-Roll + Voiceover Audio + Images)
+  // Assets: Original Video + Voiceover Audio + Slot-Bound Images
   const [sourceVideoAsset, setSourceVideoAsset] = useState(null);
   const [useVideoAudio, setUseVideoAudio] = useState(true);
   const sourceVideoElRef = useRef(null);
 
-  const [imageAssets, setImageAssets] = useState([]);
+  const [imageAssets, setImageAssets] = useState([]); // [{ name, url }]
   const loadedImagesRef = useRef({});
+  const [copiedSlotKey, setCopiedSlotKey] = useState(null);
   const [audioAsset, setAudioAsset] = useState(null);
   const audioElRef = useRef(null);
 
-  // Get Transcript (Riverside + Confirm Modal)
+  // Get Transcript State
   const [transcriptTab, setTranscriptTab] = useState("riverside");
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
   const [pendingTranscript, setPendingTranscript] = useState("");
@@ -1912,9 +1305,21 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
   );
 
   const parsedRecipe = useMemo(
-    () => parseRecipe(appliedRecipe, themeId),
-    [appliedRecipe, themeId]
+    () => parseRecipe(appliedRecipe, themeId, formatId),
+    [appliedRecipe, themeId, formatId]
   );
+
+  const imageByNameMap = useMemo(() => {
+    const map = {};
+    imageAssets.forEach((a) => {
+      map[a.name.toLowerCase()] = a;
+    });
+    return map;
+  }, [imageAssets]);
+
+  const uploadedRequiredCount = useMemo(() => {
+    return parsedRecipe.requiredAssets.filter((a) => Boolean(imageByNameMap[a.name])).length;
+  }, [parsedRecipe.requiredAssets, imageByNameMap]);
 
   const transcriptHasTiming = useMemo(
     () => hasTimestampsInText(transcriptInput),
@@ -1948,7 +1353,6 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
     if (showToast) showToast(msg, type);
   };
 
-  // Stop media & loops cleanly on unmount
   useEffect(() => {
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -1970,7 +1374,6 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
     };
   }, []);
 
-  // Persist Recent Projects
   const saveProjectToRecents = (override = {}) => {
     const nextEntry = {
       id: override.id || projectId,
@@ -2007,7 +1410,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
     setIsPlaying(false);
     setProjectId(proj.id);
     setProjectTitle(proj.title || "Motion Edit");
-    setFormatId(proj.formatId || "16:9");
+    setFormatId(proj.formatId || "9:16");
     setFps(proj.fps || 30);
     setThemeId(proj.themeId || "dark");
     setRecipeDraft(proj.code || "");
@@ -2016,7 +1419,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
     currentTimeRef.current = 0;
     setHistory([]);
     setFuture([]);
-    setWorkspaceTab("code");
+    setWorkspaceTab("assets");
     setScreen("workspace");
   };
 
@@ -2047,18 +1450,19 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
     }
   };
 
-  // Preload image assets for Canvas
+  // Preload images into HTMLImageElements and redraw when loaded
   useEffect(() => {
     const map = {};
     imageAssets.forEach((asset) => {
       const img = new Image();
+      img.onload = () => setVideoSeekTick((t) => t + 1);
       img.src = asset.url;
       map[asset.name.toLowerCase()] = img;
     });
     loadedImagesRef.current = map;
   }, [imageAssets]);
 
-  // Render canvas frame when idle/previewing
+  // Draw preview frame
   useEffect(() => {
     if (screen !== "workspace" || exporting || !canvasRef.current) return;
     const canvas = canvasRef.current;
@@ -2084,7 +1488,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
     videoSeekTick,
   ]);
 
-  // Playback loop (keeps Original Video + Separate Voiceover synced)
+  // Playback loop
   useEffect(() => {
     if (!isPlaying || exporting) {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -2143,118 +1547,34 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
     useVideoAudio,
   ]);
 
-  // Handle Original Video (A-Roll) Upload
   const handleSourceVideoUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const url = URL.createObjectURL(file);
     setSourceVideoAsset({ name: file.name, url, duration: 0 });
-    setMixOriginalVideo(true);
-    notify(
-      `Original video "${file.name}" loaded! Use "video" or "pip" scenes to show it between motion graphics.`,
-      "success"
-    );
+    notify(`Original video "${file.name}" attached!`, "success");
     e.target.value = "";
   };
 
-  // 1-Click Auto-Mix Original Video Cutaways into existing timeline
-  const handleAutoMixVideoCutaways = () => {
-    if (parsedRecipe.cues.length === 0) {
-      const dur =
-        sourceVideoAsset?.duration && sourceVideoAsset.duration > 3
-          ? sourceVideoAsset.duration
-          : 14;
-      const sample = [
-        {
-          id: "m1",
-          start: 0,
-          end: 2.8,
-          type: "video",
-          text: "main",
-          sub: "Watch this carefully...",
-          anim: "zoomIn",
-          color: "",
-          size: "large",
-          pos: "center",
-        },
-        {
-          id: "m2",
-          start: 2.8,
-          end: 6.0,
-          type: "search",
-          text: "pro motion graphics",
-          sub: "Step 1",
-          anim: "pop",
-          color: "",
-          size: "large",
-          pos: "center",
-        },
-        {
-          id: "m3",
-          start: 6.0,
-          end: 9.2,
-          type: "pip",
-          text: "Keep Audience Hooked",
-          sub: "Mix face + graphics smoothly",
-          anim: "slideLeft",
-          color: "",
-          size: "large",
-          pos: "center",
-        },
-        {
-          id: "m4",
-          start: 9.2,
-          end: Math.min(dur, 12.5),
-          type: "chart",
-          text: "Engagement Jump",
-          sub: "20,62,40,86,65,98",
-          anim: "fadeUp",
-          color: "",
-          size: "large",
-          pos: "center",
-        },
-        {
-          id: "m5",
-          start: Math.min(dur, 12.5),
-          end: Math.max(15, Math.min(dur, 15.5)),
-          type: "video",
-          text: "main",
-          sub: "Follow for more!",
-          anim: "fadeIn",
-          color: "",
-          size: "large",
-          pos: "center",
-        },
-      ];
-      updateCuesFromTimeline(sample);
-      notify("Created a ready Video + Motion hybrid timeline!", "success");
-      return;
-    }
-
-    const mixed = parsedRecipe.cues.map((cue, idx) => {
-      if (idx % 3 === 0) {
-        return {
-          ...cue,
-          type: "video",
-          text: "main",
-          sub: cue.type === "video" ? cue.sub : cue.text,
-          anim: "zoomIn",
-        };
-      }
-      if (idx % 3 === 2 && cue.type === "text") {
-        return {
-          ...cue,
-          type: "pip",
-          anim: "slideLeft",
-        };
-      }
-      return cue;
+  // Upload image directly into a specific required slot (auto-binds to slotName!)
+  const handleUploadImageForSlot = (slotName, e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const key = String(slotName).toLowerCase().trim();
+    const url = URL.createObjectURL(file);
+    setImageAssets((prev) => {
+      const filtered = prev.filter((a) => a.name.toLowerCase() !== key);
+      return [...filtered, { name: key, url }];
     });
-    updateCuesFromTimeline(mixed);
-    notify("Mixed Original Video cutaways & PiP between your motion graphics!", "success");
+    notify(`Image added to ${key}!`, "success");
+    e.target.value = "";
   };
 
-  // Take text from clipboard -> open "Use this transcript?" review sheet
+  const handleRemoveImageAsset = (slotName) => {
+    const key = String(slotName).toLowerCase().trim();
+    setImageAssets((prev) => prev.filter((a) => a.name.toLowerCase() !== key));
+  };
+
   const handleTakeText = async (fromClipboard = true) => {
     if (fromClipboard && navigator.clipboard?.readText) {
       try {
@@ -2296,7 +1616,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
     setGeneratedPrompt("");
     setShowPromptBox(false);
     setScreen("get_code");
-    notify("Transcript loaded! Pick your format & style, then tap Get Prompt.", "success");
+    notify("Transcript loaded! Pick format & style, then build or get prompt.", "success");
   };
 
   const handleSavePromptTxt = () => {
@@ -2305,7 +1625,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `clipforge_motion_prompt_${formatId.replace(":", "x")}.txt`;
+    a.download = `clipforge_prompt_${formatId.replace(":", "x")}.txt`;
     a.click();
     URL.revokeObjectURL(url);
     notify("Prompt saved as .txt! Attach it in Claude, ChatGPT, or Gemini.", "success");
@@ -2313,7 +1633,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
 
   const handlePasteCodeFromClipboard = async () => {
     if (!navigator.clipboard?.readText) {
-      notify("Paste directly into the code box below using Ctrl+V / Long-press Paste.", "info");
+      notify("Paste directly into the code box below.", "info");
       return;
     }
     try {
@@ -2323,7 +1643,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
         return;
       }
       setRecipeDraft(txt.trim());
-      notify("Code pasted! Tap 'Apply & preview' to watch your motion edit.", "success");
+      notify("Code pasted! Tap 'Apply & preview'.", "success");
     } catch {
       notify("Tap inside the code box and paste manually.", "info");
     }
@@ -2332,13 +1652,13 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
   const handleApplyCode = (overrideCode = null) => {
     const codeToUse = overrideCode !== null ? overrideCode : recipeDraft;
     if (!codeToUse.trim()) {
-      notify("Paste a recipe code first or pick a starter template.", "error");
+      notify("Paste a recipe code first or pick a template.", "error");
       return;
     }
-    const testParsed = parseRecipe(codeToUse, themeId);
+    const testParsed = parseRecipe(codeToUse, themeId, formatId);
     if (testParsed.cues.length === 0) {
       notify(
-        'No valid cues found. Example: 00:00.00 --> 00:03.00 search "Hello" sub="Demo" in=pop',
+        'No valid cues found. Example: 00:00.00 --> 00:03.00 video "main" sub="Hello" in=fadeIn',
         "error"
       );
       return;
@@ -2354,7 +1674,15 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
     currentTimeRef.current = 0;
     setIsPlaying(true);
     saveProjectToRecents({ code: codeToUse, themeId: testParsed.theme });
-    notify(`Applied ${testParsed.cues.length} scenes! Playing preview.`, "success");
+    if (testParsed.requiredAssets.length > 0) {
+      setWorkspaceTab("assets");
+      notify(
+        `Applied ${testParsed.cues.length} scenes! ${testParsed.requiredAssets.length} image slots & prompts are ready in Assets.`,
+        "success"
+      );
+    } else {
+      notify(`Applied ${testParsed.cues.length} scenes! Playing preview.`, "success");
+    }
   };
 
   const handleUndo = () => {
@@ -2375,8 +1703,9 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
     setRecipeDraft(next);
   };
 
-  const updateCuesFromTimeline = (nextCues) => {
-    const newCode = serializeCuesToRecipe(nextCues, parsedRecipe.theme);
+  const updateCuesFromTimeline = (nextCues, extraAssets = null) => {
+    const assetsToKeep = extraAssets || parsedRecipe.requiredAssets;
+    const newCode = serializeCuesToRecipe(nextCues, parsedRecipe.theme, assetsToKeep);
     setHistory((h) => [...h.slice(-20), appliedRecipe]);
     setFuture([]);
     setRecipeDraft(newCode);
@@ -2384,19 +1713,18 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
     saveProjectToRecents({ code: newCode });
   };
 
-  const handleAddTimelineCue = (cueType = "chart") => {
+  const handleAddTimelineCue = (cueType = "image") => {
     const lastEnd =
       parsedRecipe.cues.length > 0 ? Math.max(...parsedRecipe.cues.map((c) => c.end)) : 0;
+    const nextImgNum = parsedRecipe.requiredAssets.length + 1;
+    const newAssetName = `image_${nextImgNum}`;
     const defaultsByType = {
-      video: { text: "main", sub: "Original video cutaway" },
-      pip: { text: "Key Insight", sub: "Original video + motion graphic" },
-      search: { text: "animate my video", sub: "AI Studio" },
-      chart: { text: "Growth Spike", sub: "20,65,40,85,60,96" },
-      hub: { text: "All-In-One", sub: "Script|Edit|Motion|Export" },
-      orbit: { text: "100% Automated", sub: "Smooth motion graphics" },
-      bars: { text: "Before vs After", sub: "Old:25|New:95" },
-      stat: { text: "10x Faster", sub: "Live animated counter" },
-      text: { text: "New motion headline", sub: "" },
+      video: { text: "main", sub: "Add your spoken caption line here" },
+      image: { text: newAssetName, sub: "Spoken caption while this image displays" },
+      text: { text: "Clean animated headline", sub: "" },
+      badge: { text: "HOOK", sub: "Opening spoken line here" },
+      stat: { text: "10x Faster", sub: "Key highlight caption" },
+      card: { text: "Key Point", sub: "Spoken explanation caption" },
     };
     const d = defaultsByType[cueType] || defaultsByType.text;
     const next = [
@@ -2404,25 +1732,40 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
       {
         id: `cue_${Date.now()}`,
         start: Number(lastEnd.toFixed(2)),
-        end: Number((lastEnd + 3).toFixed(2)),
+        end: Number((lastEnd + 3.5).toFixed(2)),
         type: cueType,
         text: d.text,
         sub: d.sub,
-        anim: "pop",
+        anim: cueType === "image" ? "zoomIn" : "fadeUp",
         color: "",
         size: "large",
         pos: "center",
       },
     ];
-    updateCuesFromTimeline(next);
-    notify(`Added new ${cueType} scene to timeline.`, "success");
+    const nextAssets =
+      cueType === "image"
+        ? [
+            ...parsedRecipe.requiredAssets,
+            {
+              name: newAssetName,
+              prompt: generateImagePromptForScene(d.sub, formatId),
+            },
+          ]
+        : parsedRecipe.requiredAssets;
+    updateCuesFromTimeline(next, nextAssets);
+    notify(
+      cueType === "image"
+        ? `Added empty slot "${newAssetName}" + prompt in Assets tab.`
+        : `Added new ${cueType} scene.`,
+      "success"
+    );
   };
 
   const handleDownloadProjectFile = () => {
     saveProjectToRecents();
     const payload = {
       app: "ClipForge Motion Studio",
-      version: "v2",
+      version: "v3",
       title: projectTitle,
       formatId,
       fps,
@@ -2449,7 +1792,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
         const parsed = JSON.parse(String(reader.result || "{}"));
         if (!parsed.code) throw new Error("Invalid project file.");
         setProjectTitle(parsed.title || file.name.replace(/\.json$/i, ""));
-        setFormatId(parsed.formatId || "16:9");
+        setFormatId(parsed.formatId || "9:16");
         setFps(parsed.fps || 30);
         setThemeId(parsed.themeId || "dark");
         setRecipeDraft(parsed.code);
@@ -2458,17 +1801,17 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
         currentTimeRef.current = 0;
         notify("Project loaded successfully!", "success");
       } catch {
-        notify("Could not open file. Please select a valid .clipforge.json file.", "error");
+        notify("Could not open file. Select a valid .clipforge.json file.", "error");
       }
     };
     reader.readAsText(file);
     e.target.value = "";
   };
 
-  // Smooth Lag-Free Capture (Motion Graphics + Original Video + Audio) -> Universal H.264 MP4
+  // Universal H.264 MP4 Export (Video + Images + Animated Bottom Captions + Audio)
   const handleExportVideo = async () => {
     if (!canvasRef.current || parsedRecipe.cues.length === 0) {
-      notify("Apply a motion recipe before exporting.", "error");
+      notify("Apply a recipe before exporting.", "error");
       return;
     }
     if (typeof MediaRecorder === "undefined") {
@@ -2482,7 +1825,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
 
     const baseSlug =
       projectTitle.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") ||
-      "clipforge_motion";
+      "clipforge_edit";
 
     const triggerDownload = (blob, filename) => {
       const url = URL.createObjectURL(blob);
@@ -2503,7 +1846,6 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
       const canvas = canvasRef.current;
       const ctx = canvas.getContext("2d");
 
-      // Fresh off-DOM video element for export (prevents Web Audio reconnect errors)
       if (sourceVideoAsset?.url) {
         exportVideo = document.createElement("video");
         exportVideo.src = sourceVideoAsset.url;
@@ -2533,7 +1875,6 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
       const tracks = [...videoStream.getVideoTracks()];
       let hasAudioTrack = false;
 
-      // Mix Audio Track: Separate Voiceover Audio OR Original Video Audio
       const shouldUseSeparateAudio = Boolean(audioAsset?.url);
       const shouldUseVideoAudio = Boolean(exportVideo && useVideoAudio && !shouldUseSeparateAudio);
 
@@ -2690,7 +2031,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
         const mp4Blob = await resp.blob();
         if (mp4Blob.size > 0) {
           triggerDownload(mp4Blob, mp4Name);
-          notify(`Universal MP4 (${fps}fps) downloaded! Playable on all phones & apps.`, "success");
+          notify(`Universal MP4 (${fps}fps) downloaded!`, "success");
           return;
         }
         throw new Error("Empty MP4 returned");
@@ -2809,14 +2150,15 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-xl font-extrabold text-white tracking-tight">
-                  ClipForge Motion Pro
+                  ClipForge Motion Studio
                 </h2>
                 <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-400/30 text-emerald-300 text-[10px] font-bold uppercase">
                   100% Free
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Pro Motion Graphics (Charts, Hubs, Search UI) + Original Video Cutaways — 0 credits
+                Animated bottom captions + length-matched image slots &amp; AI image prompts — 0
+                credits
               </p>
             </div>
           </div>
@@ -2836,8 +2178,8 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
               <div>
                 <div className="font-extrabold text-base">I have code</div>
                 <div className="text-xs text-slate-600 mt-0.5 leading-relaxed">
-                  Paste a recipe from Claude, ChatGPT, or Gemini, attach your original video, and
-                  export as universal MP4.
+                  Paste [ASSETS] + [RECIPE] from Claude, ChatGPT, or Gemini, upload images into
+                  ready slots, and export MP4.
                 </div>
               </div>
             </div>
@@ -2855,8 +2197,8 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
               <div>
                 <div className="font-bold text-base text-white">Get code</div>
                 <div className="text-xs text-slate-400 mt-0.5 leading-relaxed">
-                  Paste transcript, turn on Video + Motion Hybrid mode, pick aspect ratio &amp;
-                  style, and generate your AI prompt or auto-build in 1 click.
+                  Paste your transcript, attach your original video, and automatically get animated
+                  bottom captions + empty image slots with AI prompts.
                 </div>
               </div>
             </div>
@@ -2889,13 +2231,13 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
         {/* Starter Templates */}
         <div className="space-y-2.5 pt-2">
           <div className="text-xs font-bold uppercase tracking-wider text-slate-400">
-            Pro Motion Graphics Templates (1-Click Preview)
+            Quick Starter Templates (With Image Slots &amp; Prompts)
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {DEMO_TEMPLATES.map((tpl) => (
               <button
                 key={tpl.title}
-                onClick={() => startFreshWorkspace("timeline", tpl)}
+                onClick={() => startFreshWorkspace("assets", tpl)}
                 className="p-3.5 rounded-xl bg-black/35 hover:bg-white/[0.06] border border-white/10 hover:border-amber-400/40 text-left transition space-y-1"
               >
                 <div className="flex items-center justify-between">
@@ -2905,7 +2247,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
                   </span>
                 </div>
                 <div className="font-bold text-xs text-white pt-1">{tpl.title}</div>
-                <div className="text-[11px] text-slate-400">Click to preview &amp; export MP4</div>
+                <div className="text-[11px] text-slate-400">Click to preview &amp; add images</div>
               </button>
             ))}
           </div>
@@ -2920,7 +2262,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
 
           {recentProjects.length === 0 ? (
             <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/10 text-center text-xs text-slate-500">
-              No saved motion projects yet. Click &quot;Pro Motion Showcase&quot; above to try it now.
+              No saved motion projects yet. Click a template above or start in Get code.
             </div>
           ) : (
             <div className="space-y-2">
@@ -2937,7 +2279,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
                     <div className="min-w-0">
                       <div className="font-bold text-sm text-white truncate">{proj.title}</div>
                       <div className="text-[11px] text-slate-400">
-                        {relativeTimeLabel(proj.updatedAt)} · {proj.formatId || "16:9"} ·{" "}
+                        {relativeTimeLabel(proj.updatedAt)} · {proj.formatId || "9:16"} ·{" "}
                         {proj.fps || 30}fps
                       </div>
                     </div>
@@ -3195,7 +2537,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
           </button>
         </div>
 
-        {/* "Use this transcript?" Confirmation Modal */}
+        {/* Confirmation Modal */}
         {confirmModalOpen && (
           <div className="fixed inset-0 z-[75] bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-3 sm:p-4">
             <div className="w-full max-w-xl rounded-3xl bg-[#11111e] border border-white/15 p-5 sm:p-6 space-y-4 shadow-2xl">
@@ -3220,15 +2562,15 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
                   <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5"/>
                   <span>
                     <strong>No timestamps detected.</strong> An <strong>.srt</strong> syncs
-                    animations to your voiceover; plain text will use automatic pacing.
+                    captions precisely to your voice; plain text uses automatic pacing.
                   </span>
                 </div>
               ) : pendingHasTiming ? (
                 <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-400/35 text-xs text-emerald-200 flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0"/>
                   <span>
-                    <strong>Timestamps detected!</strong> Your motion animations will sync cleanly
-                    to your voiceover.
+                    <strong>Timestamps detected!</strong> Ready for synced bottom captions &amp;
+                    image slots.
                   </span>
                 </div>
               ) : null}
@@ -3270,7 +2612,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
   }
 
   // =========================================================================
-  // RENDER 3: GET CODE (Format, 30/60fps, Hybrid Video + Motion Styles)
+  // RENDER 3: GET CODE
   // =========================================================================
   if (screen === "get_code") {
     return (
@@ -3294,48 +2636,39 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
           </button>
         </div>
 
-        {/* How this works */}
+        {/* How it works */}
         <div className="p-5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-2 text-xs text-slate-300">
-          <div className="font-bold text-sm text-white">How Pro Motion + Video Editing works</div>
+          <div className="font-bold text-sm text-white">How this works</div>
           <ol className="space-y-1 list-decimal list-inside leading-relaxed">
-            <li>Paste your transcript or upload an .srt file (from Riverside.fm or your clips).</li>
+            <li>Attach your Original Video (optional) and paste or upload your .srt transcript.</li>
             <li>
-              Optionally attach your <strong>Original Video</strong> below so it automatically shows
-              between motion graphics (like top YouTube &amp; Reels editors).
+              Tap <strong>Auto-Build With Image Slots</strong> (instant) or{" "}
+              <strong>Get Prompt</strong> (for Claude/ChatGPT/Gemini).
             </li>
-            <li>Pick aspect ratio, frame rate (30 / 60 fps), theme, and edit style.</li>
             <li>
-              Tap <strong>Get Prompt</strong> for Claude/ChatGPT/Gemini, or tap{" "}
-              <strong>Auto-Build Pro Edit Instantly</strong> for a 1-click live edit!
+              Based on your video length, empty <strong>Image Slots</strong> + ready{" "}
+              <strong>AI Image Prompts</strong> appear automatically in the{" "}
+              <strong>Assets</strong> tab — just copy each prompt, create the image, and upload it
+              into its slot!
             </li>
+            <li>Preview your animated bottom captions + images, then export universal MP4.</li>
           </ol>
         </div>
 
-        {/* Optional Original Video Attach Card */}
+        {/* Original Video Upload Card */}
         <div className="p-4 rounded-2xl bg-gradient-to-r from-violet-950/40 via-[#0e0e1e] to-cyan-950/30 border border-cyan-400/30 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Video className="w-4 h-4 text-cyan-400"/>
-              <span className="font-bold text-sm text-white">
-                Original Video Cutaways (A-Roll / Talking Head)
-              </span>
-            </div>
-            <label className="flex items-center gap-2 text-xs text-cyan-200 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={mixOriginalVideo}
-                onChange={(e) => setMixOriginalVideo(e.target.checked)}
-                className="accent-cyan-400"
-              />
-              Mix original video between motion graphics
-            </label>
+          <div className="flex items-center gap-2">
+            <Video className="w-4 h-4 text-cyan-400"/>
+            <span className="font-bold text-sm text-white">
+              Attach Original Video (Optional — Plays With Animated Bottom Captions)
+            </span>
           </div>
           <div className="flex flex-wrap items-center gap-2.5">
             <label className="flex-1 py-2.5 px-4 rounded-xl bg-white/5 hover:bg-white/10 border border-dashed border-cyan-400/45 text-cyan-200 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition">
               <Upload className="w-4 h-4"/>
               {sourceVideoAsset
                 ? `Loaded: ${sourceVideoAsset.name}`
-                : "Attach Original Video (.mp4 / .mov / .webm) — Optional"}
+                : "Upload Original Video (.mp4 / .mov / .webm)"}
               <input
                 type="file"
                 accept="video/*"
@@ -3362,7 +2695,8 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
               <div className="font-bold text-sm text-white">Transcript</div>
               <div className="text-[11px] text-amber-300 mt-0.5 flex items-center gap-1">
                 <Clock className="w-3.5 h-3.5 shrink-0"/>
-                Upload an .srt file so motion graphics &amp; video cutaways sync to your voiceover.
+                Upload an .srt file so animated bottom captions &amp; image slots sync to your
+                video length.
               </div>
             </div>
             <a
@@ -3379,8 +2713,8 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
             <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-400/35 text-xs text-amber-200 flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5"/>
               <span>
-                No timestamps in this text. Upload an <strong>.srt</strong> to sync animations
-                precisely, or continue with automatic pacing.
+                No timestamps in this text. Upload an <strong>.srt</strong> for exact voice timing,
+                or continue with automatic pacing.
               </span>
             </div>
           )}
@@ -3388,7 +2722,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
           {transcriptHasTiming && (
             <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-400/30 text-xs text-emerald-200 flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0"/>
-              <span>Timestamps detected — ready for voice-synced motion edits.</span>
+              <span>Timestamps detected — captions &amp; image slots will match video length.</span>
             </div>
           )}
 
@@ -3431,7 +2765,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
           </div>
         </div>
 
-        {/* Aspect Ratio Cards */}
+        {/* Aspect Ratio */}
         <div className="space-y-2.5">
           <div className="text-sm font-bold text-white">Aspect ratio</div>
           <div className="grid grid-cols-3 gap-3">
@@ -3460,7 +2794,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
           </div>
         </div>
 
-        {/* Frame Rate Cards */}
+        {/* Frame Rate */}
         <div className="space-y-2.5">
           <div className="text-sm font-bold text-white">Frame rate</div>
           <div className="grid grid-cols-2 gap-3">
@@ -3485,12 +2819,12 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
           </div>
         </div>
 
-        {/* Edit Style Selector */}
+        {/* Edit Style */}
         <div className="space-y-2.5">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="text-sm font-bold text-white">Edit style</div>
             <div className="flex items-center gap-2">
-              <span className="text-[11px] text-slate-400">Visual Theme:</span>
+              <span className="text-[11px] text-slate-400">Theme:</span>
               <select
                 value={themeId}
                 onChange={(e) => setThemeId(e.target.value)}
@@ -3513,10 +2847,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
                 <button
                   key={st.id}
                   type="button"
-                  onClick={() => {
-                    setEditStyleId(st.id);
-                    if (st.id === "pro_creator_hybrid") setMixOriginalVideo(true);
-                  }}
+                  onClick={() => setEditStyleId(st.id)}
                   className={`w-full p-4 rounded-2xl border text-left transition flex items-center justify-between gap-3 ${
                     active
                       ? "bg-amber-500/15 border-amber-400/70 shadow-lg shadow-amber-500/10"
@@ -3553,8 +2884,60 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
           </div>
         </div>
 
-        {/* Primary Get Prompt + Instant Auto-Build */}
+        {/* Action Buttons */}
         <div className="space-y-2.5 pt-1">
+          <button
+            type="button"
+            onClick={() => {
+              if (!transcriptInput.trim()) {
+                notify("Please paste or upload a transcript first.", "error");
+                return;
+              }
+              const autoCode = buildRecipeFromTranscript(
+                transcriptInput,
+                themeId,
+                editStyleId,
+                formatId,
+                Boolean(sourceVideoAsset)
+              );
+              const parsed = parseRecipe(autoCode, themeId, formatId);
+              const newId = `motion_${Date.now()}`;
+              const cleanTitle =
+                transcriptInput
+                  .replace(/\[?\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d+)?\]?/g, "")
+                  .replace(/-->/g, "")
+                  .trim()
+                  .split(/\s+/)
+                  .slice(0, 5)
+                  .join(" ") || "Motion Edit";
+              setProjectId(newId);
+              setProjectTitle(cleanTitle);
+              setRecipeDraft(autoCode);
+              setAppliedRecipe(autoCode);
+              setCurrentTime(0);
+              currentTimeRef.current = 0;
+              setWorkspaceTab("assets");
+              setScreen("workspace");
+              setIsPlaying(false);
+              saveProjectToRecents({
+                id: newId,
+                title: cleanTitle,
+                formatId,
+                fps,
+                themeId,
+                code: autoCode,
+              });
+              notify(
+                `Built clean timeline with ${parsed.requiredAssets.length} image slots & ready AI image prompts!`,
+                "success"
+              );
+            }}
+            className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:opacity-95 text-black font-extrabold text-sm flex items-center justify-center gap-2 shadow-xl transition"
+          >
+            <Sparkles className="w-4 h-4"/>
+            Auto-Build Edit + Image Slots &amp; Prompts Instantly
+          </button>
+
           <button
             type="button"
             onClick={() => {
@@ -3568,7 +2951,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
                 fps,
                 editStyleId,
                 themeId,
-                mixOriginalVideo
+                Boolean(sourceVideoAsset)
               );
               setGeneratedPrompt(promptText);
               setShowPromptBox(false);
@@ -3576,63 +2959,16 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
                 setCopiedPrompt(true);
                 setTimeout(() => setCopiedPrompt(false), 2500);
               });
-              notify("Pro Motion Graphics handoff prompt ready & copied!", "success");
+              notify("Handoff prompt ready & copied!", "success");
             }}
-            className="w-full py-3.5 rounded-2xl bg-slate-100 hover:bg-white text-black font-extrabold text-sm flex items-center justify-center gap-2 shadow-xl transition"
+            className="w-full py-3 rounded-2xl bg-white/10 hover:bg-white/15 border border-white/15 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2"
           >
             <Wand2 className="w-4 h-4"/>
-            Get Prompt (For Claude / ChatGPT / Gemini)
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              if (!transcriptInput.trim()) {
-                notify("Please paste or upload a transcript first.", "error");
-                return;
-              }
-              const autoCode = buildRecipeFromTranscript(
-                transcriptInput,
-                themeId,
-                editStyleId,
-                mixOriginalVideo
-              );
-              const newId = `motion_${Date.now()}`;
-              const cleanTitle =
-                transcriptInput
-                  .replace(/\[?\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d+)?\]?/g, "")
-                  .replace(/-->/g, "")
-                  .trim()
-                  .split(/\s+/)
-                  .slice(0, 5)
-                  .join(" ") || "Pro Motion Edit";
-              setProjectId(newId);
-              setProjectTitle(cleanTitle);
-              setRecipeDraft(autoCode);
-              setAppliedRecipe(autoCode);
-              setCurrentTime(0);
-              currentTimeRef.current = 0;
-              setWorkspaceTab("timeline");
-              setScreen("workspace");
-              setIsPlaying(true);
-              saveProjectToRecents({
-                id: newId,
-                title: cleanTitle,
-                formatId,
-                fps,
-                themeId,
-                code: autoCode,
-              });
-              notify("Pro Motion Edit auto-built from your transcript!", "success");
-            }}
-            className="w-full py-3 rounded-2xl bg-gradient-to-r from-violet-600 to-cyan-500 hover:opacity-95 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2"
-          >
-            <Sparkles className="w-4 h-4"/>
-            Auto-Build Pro Motion Edit Instantly (Skip External AI)
+            Or Get Prompt (For Claude / ChatGPT / Gemini)
           </button>
         </div>
 
-        {/* GREEN "Handoff ready" Panel */}
+        {/* Handoff Ready Panel */}
         {generatedPrompt && (
           <div className="p-5 sm:p-6 rounded-3xl bg-emerald-950/40 border border-emerald-500/40 space-y-4 shadow-xl">
             <div className="space-y-1">
@@ -3641,10 +2977,10 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
                 Handoff ready
               </div>
               <p className="text-xs text-slate-300 leading-relaxed">
-                Send this to Claude, ChatGPT, or Gemini. It returns the{" "}
-                <code className="text-emerald-200">[ASSETS]</code> and{" "}
-                <code className="text-emerald-200">[RECIPE]</code> blocks with Pro Motion Graphics
-                cues. Copy those, then tap <strong>Open the editor</strong> below.
+                Send this to Claude, ChatGPT, or Gemini. It returns{" "}
+                <code className="text-emerald-200">[ASSETS]</code> (image prompts) and{" "}
+                <code className="text-emerald-200">[RECIPE]</code>. Paste them into the editor and
+                every image slot + prompt will automatically appear in Assets.
               </p>
             </div>
 
@@ -3664,7 +3000,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
                   navigator.clipboard?.writeText(generatedPrompt);
                   setCopiedPrompt(true);
                   setTimeout(() => setCopiedPrompt(false), 2500);
-                  notify("Prompt copied to clipboard!", "success");
+                  notify("Prompt copied!", "success");
                 }}
                 className="py-2.5 px-3 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-xs font-bold text-white flex items-center justify-center gap-1.5"
               >
@@ -3735,11 +3071,10 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
   }
 
   // =========================================================================
-  // RENDER 4: WORKSPACE (Live Canvas + Video Cutaways + Timeline / Code / Assets)
+  // RENDER 4: WORKSPACE (Live Preview + Empty Image Slots w/ Prompts + Export)
   // =========================================================================
   return (
     <div className="space-y-4">
-      {/* Hidden Synced Media Elements for Live Preview */}
       {audioAsset && <audio ref={audioElRef} src={audioAsset.url} preload="auto" />}
       {sourceVideoAsset && (
         <video
@@ -3854,7 +3189,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
         </div>
       </div>
 
-      {/* Main Split: Preview Canvas + Controls */}
+      {/* Main Split: Live Preview + Assets/Timeline/Code */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
         {/* Left: Live Video Preview Canvas */}
         <div className="lg:col-span-6 p-4 rounded-2xl bg-white/[0.04] border border-white/10 space-y-4">
@@ -3863,15 +3198,15 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
               ref={canvasRef}
               width={activeFormat.width}
               height={activeFormat.height}
-              className="w-full h-auto max-h-[440px] object-contain block"
+              className="w-full h-auto max-h-[450px] object-contain block"
             />
             {parsedRecipe.cues.length === 0 && (
               <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-center p-6 space-y-2">
                 <Film className="w-10 h-10 text-slate-500"/>
                 <div className="font-bold text-sm text-white">No recipe yet</div>
                 <div className="text-xs text-slate-400 max-w-xs">
-                  Paste code below and tap <strong>Apply &amp; preview</strong>, or tap{" "}
-                  <strong>No code? Get code</strong>.
+                  Paste code in the Code tab or open <strong>Get code</strong> to auto-generate
+                  bottom captions &amp; image slots.
                 </div>
               </div>
             )}
@@ -3945,8 +3280,10 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
 
             <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400 px-1">
               <span>
-                {parsedRecipe.cues.length} scenes · {fps}fps · Theme:{" "}
-                <strong className="text-slate-200">{THEMES[parsedRecipe.theme]?.label}</strong>
+                {parsedRecipe.cues.length} cues · Images:{" "}
+                <strong className="text-amber-300">
+                  {uploadedRequiredCount}/{parsedRecipe.requiredAssets.length}
+                </strong>
               </span>
               <div className="flex items-center gap-2">
                 {sourceVideoAsset && (
@@ -3956,7 +3293,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
                 )}
                 {audioAsset && (
                   <span className="text-emerald-300 flex items-center gap-1">
-                    <Music className="w-3 h-3"/> {audioAsset.name}
+                    <Music className="w-3 h-3"/> Audio Synced
                   </span>
                 )}
               </div>
@@ -3964,13 +3301,17 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
           </div>
         </div>
 
-        {/* Right: Timeline / Code / Assets Panel */}
+        {/* Right: Assets & Prompts / Timeline / Code */}
         <div className="lg:col-span-6 p-4 rounded-2xl bg-white/[0.04] border border-white/10 space-y-4">
           <div className="grid grid-cols-3 p-1 rounded-xl bg-black/50 border border-white/10 text-xs font-bold">
             {[
+              {
+                id: "assets",
+                label: `Assets (${uploadedRequiredCount}/${parsedRecipe.requiredAssets.length})`,
+                icon: ImageIcon,
+              },
               { id: "timeline", label: "Timeline", icon: Layers },
               { id: "code", label: "Code", icon: Code2 },
-              { id: "assets", label: "Assets & Video", icon: ImageIcon },
             ].map((t) => {
               const Icon = t.icon;
               return (
@@ -3990,60 +3331,255 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
             })}
           </div>
 
-          {/* TAB 1: CODE */}
-          {workspaceTab === "code" && (
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                <span className="text-slate-400">
-                  Paste <code className="text-slate-200">[ASSETS] + [RECIPE]</code> from Claude /
-                  ChatGPT
-                </span>
-                <button
-                  onClick={() => setScreen("get_code")}
-                  className="text-amber-400 font-bold hover:underline"
-                >
-                  No code? Get code
-                </button>
+          {/* TAB 1: ASSETS — EMPTY IMAGE SLOTS + READY GENERATION PROMPTS */}
+          {workspaceTab === "assets" && (
+            <div className="space-y-4 max-h-[540px] overflow-y-auto pr-1">
+              {/* Required Image Slots List */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <div className="text-xs font-extrabold text-white flex items-center gap-1.5">
+                      <ImageIcon className="w-4 h-4 text-amber-400"/>
+                      Required Image Slots ({uploadedRequiredCount}/
+                      {parsedRecipe.requiredAssets.length})
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Copy the prompt under each slot to generate the image, then upload it directly
+                      into that slot.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleAddTimelineCue("image")}
+                    className="px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 text-[11px] font-bold flex items-center gap-1 shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5"/> Add Slot
+                  </button>
+                </div>
+
+                {parsedRecipe.requiredAssets.length === 0 ? (
+                  <div className="p-5 rounded-xl bg-black/35 border border-white/10 text-center text-xs text-slate-400 space-y-2">
+                    <div>No image slots in this recipe yet.</div>
+                    <button
+                      onClick={() => handleAddTimelineCue("image")}
+                      className="px-3.5 py-2 rounded-lg bg-amber-500 text-black font-bold"
+                    >
+                      + Add Empty Image Slot
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {parsedRecipe.requiredAssets.map((slot, idx) => {
+                      const uploaded = imageByNameMap[slot.name];
+                      const isCopied = copiedSlotKey === slot.name;
+                      return (
+                        <div
+                          key={slot.name}
+                          className={`p-3.5 rounded-2xl border space-y-3 transition ${
+                            uploaded
+                              ? "bg-emerald-950/20 border-emerald-500/40"
+                              : "bg-black/45 border-amber-400/35"
+                          }`}
+                        >
+                          {/* Slot Header */}
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-2">
+                              <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 font-mono text-[11px] font-bold">
+                                #{idx + 1} · {slot.name}
+                              </span>
+                              {slot.start !== null && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setIsPlaying(false);
+                                    const t = slot.start + 0.1;
+                                    setCurrentTime(t);
+                                    currentTimeRef.current = t;
+                                    if (sourceVideoElRef.current && sourceVideoAsset) {
+                                      const d = sourceVideoAsset.duration;
+                                      sourceVideoElRef.current.currentTime = d > 0 ? t % d : t;
+                                    }
+                                  }}
+                                  className="text-[11px] font-mono text-cyan-300 hover:underline"
+                                  title="Jump preview to this image slot"
+                                >
+                                  {formatClock(slot.start)} → {formatClock(slot.end)}
+                                </button>
+                              )}
+                            </div>
+
+                            {uploaded ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-300 px-2 py-0.5 rounded-full bg-emerald-500/15">
+                                <CheckCircle2 className="w-3 h-3"/> Uploaded
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-bold text-amber-300 px-2 py-0.5 rounded-full bg-amber-500/15">
+                                Empty Slot
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Empty Upload Box OR Uploaded Image Preview */}
+                          {uploaded ? (
+                            <div className="flex items-center gap-3 p-2 rounded-xl bg-black/50 border border-white/10">
+                              <img
+                                src={uploaded.url}
+                                alt={slot.name}
+                                className="w-16 h-16 rounded-lg object-cover bg-black shrink-0"
+                              />
+                              <div className="flex-1 min-w-0 space-y-1.5">
+                                <div className="text-xs font-semibold text-white truncate">
+                                  Image placed at {slot.name}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <label className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-[11px] font-semibold text-slate-200 cursor-pointer">
+                                    Replace
+                                    <input
+                                      type="file"
+                                      accept="image/*"
+                                      className="hidden"
+                                      onChange={(e) => handleUploadImageForSlot(slot.name, e)}
+                                    />
+                                  </label>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveImageAsset(slot.name)}
+                                    className="px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-[11px] font-semibold text-rose-300"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <label className="w-full py-4 px-3 rounded-xl bg-white/[0.03] hover:bg-white/[0.07] border-2 border-dashed border-amber-400/45 text-amber-200 text-xs font-bold flex flex-col items-center justify-center gap-1.5 cursor-pointer transition text-center">
+                              <Upload className="w-5 h-5 text-amber-400"/>
+                              <span>Tap to Upload Image for {slot.name}</span>
+                              {slot.sceneText && (
+                                <span className="text-[10px] font-normal text-slate-400 max-w-xs truncate">
+                                  Scene: &quot;{slot.sceneText}&quot;
+                                </span>
+                              )}
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(e) => handleUploadImageForSlot(slot.name, e)}
+                              />
+                            </label>
+                          )}
+
+                          {/* Ready Image Generation Prompt Right Underneath This Slot */}
+                          <div className="p-3 rounded-xl bg-black/60 border border-white/10 space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-300 flex items-center gap-1">
+                                <Sparkles className="w-3 h-3"/> Image Prompt for {slot.name}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard?.writeText(slot.prompt);
+                                  setCopiedSlotKey(slot.name);
+                                  setTimeout(() => setCopiedSlotKey(null), 2000);
+                                  notify(`Copied image prompt for ${slot.name}!`, "success");
+                                }}
+                                className="px-2.5 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/35 text-cyan-200 text-[11px] font-bold flex items-center gap-1"
+                              >
+                                {isCopied ? (
+                                  <>
+                                    <Check className="w-3 h-3 text-emerald-400"/> Copied
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3 h-3"/> Copy Prompt
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                            <p className="text-[11px] text-slate-300 leading-relaxed select-all">
+                              {slot.prompt}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  onClick={handlePasteCodeFromClipboard}
-                  className="py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/35 text-amber-200 text-xs font-bold flex items-center justify-center gap-1.5"
-                >
-                  <Clipboard className="w-3.5 h-3.5"/> Paste
-                </button>
-                <button
-                  onClick={handleDownloadProjectFile}
-                  className="py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold flex items-center justify-center gap-1.5"
-                >
-                  <Save className="w-3.5 h-3.5"/> Save
-                </button>
-                <label className="py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
-                  <FolderOpen className="w-3.5 h-3.5"/> Open
+              {/* Original Video Upload */}
+              <div className="p-4 rounded-xl bg-black/35 border border-cyan-400/30 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <Video className="w-4 h-4 text-cyan-400"/> Original Video (A-Roll)
+                  </div>
+                  {sourceVideoAsset && (
+                    <button
+                      onClick={() => setSourceVideoAsset(null)}
+                      className="text-[11px] text-rose-400 hover:underline"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+                <label className="w-full py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-dashed border-cyan-400/45 text-xs font-semibold text-cyan-200 flex items-center justify-center gap-2 cursor-pointer">
+                  <Upload className="w-4 h-4"/>
+                  {sourceVideoAsset
+                    ? `Loaded: ${sourceVideoAsset.name}`
+                    : "Upload Original Video (.mp4, .mov, .webm)"}
                   <input
                     type="file"
-                    accept=".json"
+                    accept="video/*"
                     className="hidden"
-                    onChange={handleOpenProjectFile}
+                    onChange={handleSourceVideoUpload}
+                  />
+                </label>
+
+                {sourceVideoAsset && (
+                  <label className="flex items-center gap-2 text-[11px] text-slate-200 pt-1 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={useVideoAudio}
+                      onChange={(e) => setUseVideoAudio(e.target.checked)}
+                      className="accent-cyan-400"
+                    />
+                    Keep original video audio across the entire edit (including image slots)
+                  </label>
+                )}
+              </div>
+
+              {/* Separate Voiceover Audio */}
+              <div className="p-4 rounded-xl bg-black/35 border border-white/10 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <Music className="w-4 h-4 text-emerald-400"/> Separate Voiceover / Music
+                    (Optional)
+                  </div>
+                  {audioAsset && (
+                    <button
+                      onClick={() => setAudioAsset(null)}
+                      className="text-[11px] text-rose-400 hover:underline"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+                <label className="w-full py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-dashed border-emerald-400/40 text-xs font-semibold text-emerald-200 flex items-center justify-center gap-2 cursor-pointer">
+                  <Upload className="w-4 h-4"/>
+                  {audioAsset ? `Loaded: ${audioAsset.name}` : "Upload Audio (.mp3, .wav, .m4a)"}
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (!f) return;
+                      const url = URL.createObjectURL(f);
+                      setAudioAsset({ name: f.name, url });
+                      notify(`Audio "${f.name}" synced!`, "success");
+                    }}
                   />
                 </label>
               </div>
-
-              <textarea
-                rows={11}
-                value={recipeDraft}
-                onChange={(e) => setRecipeDraft(e.target.value)}
-                placeholder={`v1\ntheme=opus\n00:00.00 --> 00:02.80 video "main" sub="Watch this..." in=zoomIn\n00:02.80 --> 00:06.00 search "animate my sketch" sub="AI Workflow" in=pop\n00:06.00 --> 00:09.50 chart "Growth" sub="20,65,40,85,60,96" in=fadeUp`}
-                className="w-full p-3.5 rounded-xl bg-black/60 border border-white/10 text-xs font-mono text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-amber-400"
-              />
-
-              <button
-                onClick={() => handleApplyCode()}
-                className="w-full py-3 rounded-xl bg-white hover:bg-slate-100 text-black font-extrabold text-sm flex items-center justify-center gap-2 shadow-lg transition"
-              >
-                <CheckCircle2 className="w-4 h-4"/> Apply &amp; preview
-              </button>
             </div>
           )}
 
@@ -4059,7 +3595,11 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
                       const nextTheme = e.target.value;
                       setThemeId(nextTheme);
                       if (parsedRecipe.cues.length > 0) {
-                        const updatedCode = serializeCuesToRecipe(parsedRecipe.cues, nextTheme);
+                        const updatedCode = serializeCuesToRecipe(
+                          parsedRecipe.cues,
+                          nextTheme,
+                          parsedRecipe.requiredAssets
+                        );
                         setRecipeDraft(updatedCode);
                         setAppliedRecipe(updatedCode);
                       }
@@ -4076,54 +3616,38 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
 
                 <div className="flex items-center gap-1.5">
                   <button
-                    onClick={handleAutoMixVideoCutaways}
-                    className="px-2.5 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/40 text-cyan-200 text-[11px] font-bold flex items-center gap-1"
-                    title="Auto-alternate Original Video & PiP between motion graphics"
+                    onClick={() => handleAddTimelineCue("video")}
+                    className="px-2.5 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/40 text-cyan-200 text-[11px] font-bold"
                   >
-                    <Video className="w-3.5 h-3.5"/> Mix Video
+                    + Video
                   </button>
                   <button
-                    onClick={() => handleAddTimelineCue("chart")}
-                    className="px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 text-[11px] font-bold flex items-center gap-1"
+                    onClick={() => handleAddTimelineCue("image")}
+                    className="px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 text-[11px] font-bold"
                   >
-                    <Plus className="w-3.5 h-3.5"/> Add Scene
+                    + Image Slot
+                  </button>
+                  <button
+                    onClick={() => handleAddTimelineCue("text")}
+                    className="px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 border border-white/15 text-white text-[11px] font-bold"
+                  >
+                    + Text
                   </button>
                 </div>
-              </div>
-
-              {/* Quick Pro Motion Graphic Insert Pills */}
-              <div className="flex flex-wrap gap-1.5">
-                {[
-                  { t: "video", l: "+ Video" },
-                  { t: "pip", l: "+ PiP" },
-                  { t: "search", l: "+ Search UI" },
-                  { t: "chart", l: "+ Chart" },
-                  { t: "hub", l: "+ Hub" },
-                  { t: "orbit", l: "+ Orbit" },
-                  { t: "bars", l: "+ Bars" },
-                ].map((q) => (
-                  <button
-                    key={q.t}
-                    onClick={() => handleAddTimelineCue(q.t)}
-                    className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-[10px] font-bold text-slate-300"
-                  >
-                    {q.l}
-                  </button>
-                ))}
               </div>
 
               {parsedRecipe.cues.length === 0 ? (
                 <div className="p-8 text-center rounded-xl bg-black/30 border border-white/10 text-xs text-slate-400 space-y-2">
                   <div>No scenes on the timeline yet.</div>
                   <button
-                    onClick={handleAutoMixVideoCutaways}
+                    onClick={() => handleAddTimelineCue("image")}
                     className="px-4 py-2 rounded-lg bg-amber-500 text-black font-bold"
                   >
-                    + Create Pro Video + Motion Sample
+                    + Add First Scene
                   </button>
                 </div>
               ) : (
-                <div className="space-y-2.5 max-h-[360px] overflow-y-auto pr-1">
+                <div className="space-y-2.5 max-h-[420px] overflow-y-auto pr-1">
                   {parsedRecipe.cues.map((cue, idx) => {
                     const isActive = currentTime >= cue.start && currentTime <= cue.end;
                     return (
@@ -4153,8 +3677,20 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
                               value={cue.type}
                               onClick={(e) => e.stopPropagation()}
                               onChange={(e) => {
+                                const nextType = e.target.value;
                                 const next = parsedRecipe.cues.map((c, i) =>
-                                  i === idx ? { ...c, type: e.target.value } : c
+                                  i === idx
+                                    ? {
+                                        ...c,
+                                        type: nextType,
+                                        text:
+                                          nextType === "video"
+                                            ? "main"
+                                            : nextType === "image" && c.text === "main"
+                                            ? `image_${parsedRecipe.requiredAssets.length + 1}`
+                                            : c.text,
+                                      }
+                                    : c
                                 );
                                 updateCuesFromTimeline(next);
                               }}
@@ -4234,20 +3770,26 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
                           </div>
                         </div>
 
-                        <input
-                          type="text"
-                          value={cue.text}
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            const next = parsedRecipe.cues.map((c, i) =>
-                              i === idx ? { ...c, text: val } : c
-                            );
-                            updateCuesFromTimeline(next);
-                          }}
-                          placeholder="Main title / query / asset name..."
-                          className="w-full px-2.5 py-1.5 rounded-lg bg-black/50 border border-white/10 text-xs text-white"
-                        />
+                        {cue.type !== "video" && (
+                          <input
+                            type="text"
+                            value={cue.text}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const next = parsedRecipe.cues.map((c, i) =>
+                                i === idx ? { ...c, text: val } : c
+                              );
+                              updateCuesFromTimeline(next);
+                            }}
+                            placeholder={
+                              cue.type === "image"
+                                ? "Image slot name (e.g. image_1)"
+                                : "Main headline text..."
+                            }
+                            className="w-full px-2.5 py-1.5 rounded-lg bg-black/50 border border-white/10 text-xs text-white"
+                          />
+                        )}
 
                         <input
                           type="text"
@@ -4260,16 +3802,8 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
                             );
                             updateCuesFromTimeline(next);
                           }}
-                          placeholder={
-                            cue.type === "chart"
-                              ? "Chart numbers e.g. 20,65,40,85,60,96"
-                              : cue.type === "hub"
-                              ? "4 Nodes separated by | e.g. Script|Edit|Motion|Export"
-                              : cue.type === "bars"
-                              ? "Bars e.g. Before:25|After:95"
-                              : "Optional subtitle / video caption..."
-                          }
-                          className="w-full px-2.5 py-1 rounded-lg bg-black/40 border border-white/5 text-[11px] text-slate-300"
+                          placeholder="Animated bottom caption line..."
+                          className="w-full px-2.5 py-1.5 rounded-lg bg-black/40 border border-white/5 text-[11px] text-slate-200"
                         />
                       </div>
                     );
@@ -4279,157 +3813,60 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
             </div>
           )}
 
-          {/* TAB 3: ASSETS & ORIGINAL VIDEO */}
-          {workspaceTab === "assets" && (
-            <div className="space-y-4">
-              {/* Original Video Upload (A-Roll Cutaways & PiP) */}
-              <div className="p-4 rounded-xl bg-black/35 border border-cyan-400/30 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                    <Video className="w-4 h-4 text-cyan-400"/> Original Video (A-Roll Cutaways
-                    &amp; PiP)
-                  </div>
-                  {sourceVideoAsset && (
-                    <button
-                      onClick={() => setSourceVideoAsset(null)}
-                      className="text-[11px] text-rose-400 hover:underline"
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-                <p className="text-[11px] text-slate-400">
-                  Shows automatically during <code className="text-cyan-300">video</code> &amp;{" "}
-                  <code className="text-cyan-300">pip</code> scenes while keeping your voice synced
-                  across motion graphics.
-                </p>
-                <label className="w-full py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-dashed border-cyan-400/45 text-xs font-semibold text-cyan-200 flex items-center justify-center gap-2 cursor-pointer">
-                  <Upload className="w-4 h-4"/>
-                  {sourceVideoAsset
-                    ? `Loaded: ${sourceVideoAsset.name}`
-                    : "Upload Original Video (.mp4, .mov, .webm)"}
-                  <input
-                    type="file"
-                    accept="video/*"
-                    className="hidden"
-                    onChange={handleSourceVideoUpload}
-                  />
-                </label>
-
-                {sourceVideoAsset && (
-                  <label className="flex items-center gap-2 text-[11px] text-slate-200 pt-1 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={useVideoAudio}
-                      onChange={(e) => setUseVideoAudio(e.target.checked)}
-                      className="accent-cyan-400"
-                    />
-                    Keep original video audio across the entire edit (including motion graphics)
-                  </label>
-                )}
+          {/* TAB 3: CODE */}
+          {workspaceTab === "code" && (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span className="text-slate-400">
+                  Paste <code className="text-slate-200">[ASSETS] + [RECIPE]</code> from Claude /
+                  ChatGPT / Gemini
+                </span>
+                <button
+                  onClick={() => setScreen("get_code")}
+                  className="text-amber-400 font-bold hover:underline"
+                >
+                  No code? Get code
+                </button>
               </div>
 
-              {/* Separate Voiceover Audio */}
-              <div className="p-4 rounded-xl bg-black/35 border border-white/10 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                    <Music className="w-4 h-4 text-emerald-400"/> Separate Voiceover / Music
-                    (Optional)
-                  </div>
-                  {audioAsset && (
-                    <button
-                      onClick={() => setAudioAsset(null)}
-                      className="text-[11px] text-rose-400 hover:underline"
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-                <p className="text-[11px] text-slate-400">
-                  Overrides original video audio if uploaded — synced in preview &amp; MP4 export.
-                </p>
-                <label className="w-full py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-dashed border-emerald-400/40 text-xs font-semibold text-emerald-200 flex items-center justify-center gap-2 cursor-pointer">
-                  <Upload className="w-4 h-4"/>
-                  {audioAsset ? `Loaded: ${audioAsset.name}` : "Upload Audio (.mp3, .wav, .m4a)"}
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={handlePasteCodeFromClipboard}
+                  className="py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/35 text-amber-200 text-xs font-bold flex items-center justify-center gap-1.5"
+                >
+                  <Clipboard className="w-3.5 h-3.5"/> Paste
+                </button>
+                <button
+                  onClick={handleDownloadProjectFile}
+                  className="py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold flex items-center justify-center gap-1.5"
+                >
+                  <Save className="w-3.5 h-3.5"/> Save
+                </button>
+                <label className="py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
+                  <FolderOpen className="w-3.5 h-3.5"/> Open
                   <input
                     type="file"
-                    accept="audio/*"
+                    accept=".json"
                     className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (!f) return;
-                      const url = URL.createObjectURL(f);
-                      setAudioAsset({ name: f.name, url });
-                      notify(`Audio "${f.name}" synced!`, "success");
-                    }}
+                    onChange={handleOpenProjectFile}
                   />
                 </label>
               </div>
 
-              {/* Image Assets */}
-              <div className="p-4 rounded-xl bg-black/35 border border-white/10 space-y-3">
-                <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                  <ImageIcon className="w-4 h-4 text-amber-400"/> Image &amp; Logo Assets
-                </div>
-                <p className="text-[11px] text-slate-400">
-                  Upload images and reference them in recipes using{" "}
-                  <code className="text-amber-300">image &quot;asset_name&quot;</code>.
-                </p>
+              <textarea
+                rows={11}
+                value={recipeDraft}
+                onChange={(e) => setRecipeDraft(e.target.value)}
+                placeholder={`[ASSETS]\nimage_1: Cinematic 9:16 AI studio visual, 4K, no text\n\n[RECIPE]\nv1\ntheme=dark\n00:00.00 --> 00:03.50 video "main" sub="Opening line" in=fadeIn\n00:03.50 --> 00:07.00 image "image_1" sub="Visual B-roll line" in=zoomIn`}
+                className="w-full p-3.5 rounded-xl bg-black/60 border border-white/10 text-xs font-mono text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-amber-400"
+              />
 
-                <label className="w-full py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-dashed border-amber-400/40 text-xs font-semibold text-amber-200 flex items-center justify-center gap-2 cursor-pointer">
-                  <Plus className="w-4 h-4"/> Add Image (.png, .jpg, .webp)
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    className="hidden"
-                    onChange={(e) => {
-                      const files = Array.from(e.target.files || []);
-                      if (!files.length) return;
-                      const added = files.map((f) => ({
-                        name: f.name
-                          .replace(/\.[^.]+$/, "")
-                          .toLowerCase()
-                          .replace(/[^a-z0-9_-]/g, "_"),
-                        url: URL.createObjectURL(f),
-                      }));
-                      setImageAssets((prev) => [...prev, ...added]);
-                      notify(`Added ${added.length} image asset(s)!`, "success");
-                      e.target.value = "";
-                    }}
-                  />
-                </label>
-
-                {imageAssets.length > 0 && (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                    {imageAssets.map((asset, idx) => (
-                      <div
-                        key={`${asset.name}_${idx}`}
-                        className="p-2 rounded-xl bg-black/50 border border-white/10 space-y-1.5"
-                      >
-                        <img
-                          src={asset.url}
-                          alt={asset.name}
-                          className="w-full h-20 object-cover rounded-lg bg-black"
-                        />
-                        <div className="flex items-center justify-between gap-1">
-                          <span className="text-[11px] font-mono text-amber-300 truncate">
-                            {asset.name}
-                          </span>
-                          <button
-                            onClick={() =>
-                              setImageAssets((prev) => prev.filter((_, i) => i !== idx))
-                            }
-                            className="text-rose-400 hover:text-rose-300"
-                          >
-                            <Trash2 className="w-3 h-3"/>
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <button
+                onClick={() => handleApplyCode()}
+                className="w-full py-3 rounded-xl bg-white hover:bg-slate-100 text-black font-extrabold text-sm flex items-center justify-center gap-2 shadow-lg transition"
+              >
+                <CheckCircle2 className="w-4 h-4"/> Apply &amp; preview
+              </button>
             </div>
           )}
         </div>
