@@ -1,14 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   ArrowLeft,
   Check,
   CheckCircle2,
+  Clipboard,
   Clock,
   Code2,
   Copy,
   Download,
   ExternalLink,
-  FileText,
+  Eye,
+  EyeOff,
   Film,
   FolderOpen,
   Image as ImageIcon,
@@ -16,25 +19,80 @@ import {
   Loader2,
   Mic,
   MicOff,
+  Monitor,
   Music,
   Pause,
   Play,
   Plus,
+  RefreshCw,
   RotateCcw,
   RotateCw,
   Save,
+  Smartphone,
   Sparkles,
+  Square,
   Trash2,
   Upload,
   Wand2,
+  X,
+  Zap,
 } from "lucide-react";
 
 const STORAGE_KEY = "clipforge_motion_projects_v1";
+const TRANSCRIBE_URL = "https://aifreeforever.com/tools/free-speech-to-text";
 
 const FORMAT_OPTIONS = [
-  { id: "16:9", label: "16:9 · 1080p · 30fps", width: 1280, height: 720, ratio: "16:9", desc: "YouTube / Landscape" },
-  { id: "9:16", label: "9:16 · 1080p · 30fps", width: 720, height: 1280, ratio: "9:16", desc: "Reels / Shorts / TikTok" },
-  { id: "1:1", label: "1:1 · 1080p · 30fps", width: 900, height: 900, ratio: "1:1", desc: "Square / Feed" },
+  { id: "16:9", name: "16:9", desc: "Landscape", width: 1280, height: 720, icon: Monitor },
+  { id: "9:16", name: "9:16", desc: "Portrait", width: 720, height: 1280, icon: Smartphone },
+  { id: "1:1", name: "1:1", desc: "Square", width: 900, height: 900, icon: Square },
+];
+
+const FPS_OPTIONS = [
+  { value: 30, label: "30 fps", sub: "Standard" },
+  { value: 60, label: "60 fps", sub: "Smoother" },
+];
+
+const EDIT_STYLES = [
+  {
+    id: "dynamic_no_assets",
+    name: "Dynamic No Assets",
+    desc: "Balanced, punchy edit with varied entrances and tasteful emphasis. A great default WITHOUT ASSETS.",
+    icon: Zap,
+    promptRules:
+      "Use NO external images. Focus on punchy kinetic typography, bold badges, clean stat highlights, and varied animations (pop, fadeUp, slideLeft, zoomIn).",
+  },
+  {
+    id: "dynamic_no_assets_improved",
+    name: "Dynamic No Assets Improved",
+    desc: "Create video without assets — high quality non-caption editorial motion cuts.",
+    icon: Film,
+    promptRules:
+      "Use NO external images and avoid boring subtitle walls. Turn every idea into short 2–5 word hero titles, clean cards, and high-contrast typographic beats.",
+  },
+  {
+    id: "composed",
+    name: "Composed",
+    desc: "Built from images you generate. Few elements, held long enough to read. Needs 5-7 assets before it will render.",
+    icon: Layers,
+    promptRules:
+      "Include an [ASSETS] section listing 5–7 image asset names and prompts, then reference them in [RECIPE] using `image \"asset_name\"` held for 3–5 seconds alongside crisp cards.",
+  },
+  {
+    id: "motion_graphics",
+    name: "Motion Graphics",
+    desc: "Motion graphics themed with structured cards, badges, and animated stat callouts.",
+    icon: Play,
+    promptRules:
+      "Design a sleek motion-graphics explainer using alternating `badge`, `stat`, and `card` layouts with smooth slideLeft/slideRight and zoomIn transitions.",
+  },
+  {
+    id: "motion_graphics_dynamic",
+    name: "Motion Graphics Dynamic BETA",
+    desc: "Dynamic motion graphics: every idea becomes an animated visual beat, tightly timed to your voice.",
+    icon: Sparkles,
+    promptRules:
+      "Break every spoken phrase into rapid, high-retention 1.5s–2.8s visual beats. Alternate badges, bold stats, typewriter reveals, and sleek cards synced tightly to timestamps.",
+  },
 ];
 
 const THEMES = {
@@ -120,6 +178,11 @@ theme=dark
   },
 ];
 
+function hasTimestampsInText(text) {
+  if (!text) return false;
+  return /\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d{1,3})?\s*(?:-->|->)\s*\d{1,2}:\d{2}/.test(text);
+}
+
 function parseTimestamp(raw) {
   if (!raw) return 0;
   const cleaned = String(raw).trim().replace(",", ".");
@@ -171,7 +234,6 @@ function parseRecipe(rawText, fallbackTheme = "dark") {
   const timeRangeRegex =
     /^(\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d+)?|\d+(?:[.,]\d+)?)\s*(?:-->|->)\s*(\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d+)?|\d+(?:[.,]\d+)?)\s*(.*)$/;
 
-  // Group multi-line cue attributes onto the active timestamp line
   const logicalBlocks = [];
   let inAssetsSection = false;
 
@@ -266,14 +328,17 @@ function serializeCuesToRecipe(cues, theme = "dark") {
   return lines.join("\n");
 }
 
-function buildRecipeFromTranscript(transcript, theme = "neon") {
+function buildRecipeFromTranscript(transcript, theme = "neon", editStyleId = "dynamic_no_assets") {
   const clean = (transcript || "").trim();
   if (!clean) return DEMO_TEMPLATES[0].code;
 
   const lines = ["v1", `theme=${theme}`];
-  const animCycle = ["pop", "fadeUp", "slideLeft", "zoomIn", "slideRight"];
+  const isFast = editStyleId === "motion_graphics_dynamic";
+  const isMotion = editStyleId === "motion_graphics" || editStyleId === "motion_graphics_dynamic";
+  const animCycle = isMotion
+    ? ["pop", "slideLeft", "zoomIn", "slideRight", "fadeUp"]
+    : ["fadeUp", "pop", "zoomIn", "slideLeft", "typewriter"];
 
-  // Check if SRT format
   const srtBlocks = clean.split(/\r?\n\r?\n/);
   const srtTimeRe =
     /(\d{1,2}:\d{2}:\d{2}[.,]\d{1,3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[.,]\d{1,3})/;
@@ -291,7 +356,7 @@ function buildRecipeFromTranscript(transcript, theme = "neon") {
       foundSrt = true;
       const m = blines[timeLineIdx].match(srtTimeRe);
       const start = parseTimestamp(m[1]);
-      const end = Math.max(start + 1.2, parseTimestamp(m[2]));
+      const end = Math.max(start + 1.0, parseTimestamp(m[2]));
       const text = blines
         .slice(timeLineIdx + 1)
         .join(" ")
@@ -303,12 +368,24 @@ function buildRecipeFromTranscript(transcript, theme = "neon") {
       const anim = animCycle[cueCount % animCycle.length];
       const hasNumber = /\d+%|\₹\d+|\$\d+|\d+x/i.test(text);
       const cueType =
-        cueCount === 0 ? "badge" : hasNumber ? "stat" : cueCount % 4 === 3 ? "card" : "text";
+        cueCount === 0
+          ? "badge"
+          : hasNumber
+          ? "stat"
+          : isMotion && cueCount % 2 === 1
+          ? "card"
+          : cueCount % 4 === 3
+          ? "card"
+          : "text";
 
       if (cueType === "badge") {
-        lines.push(`${formatRecipeTime(start)} --> ${formatRecipeTime(end)} badge "HIGHLIGHT" sub="${text}" in=${anim}`);
+        lines.push(
+          `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} badge "HIGHLIGHT" sub="${text}" in=${anim}`
+        );
       } else {
-        lines.push(`${formatRecipeTime(start)} --> ${formatRecipeTime(end)} ${cueType} "${text}" in=${anim}`);
+        lines.push(
+          `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} ${cueType} "${text}" in=${anim}`
+        );
       }
       cueCount++;
     }
@@ -318,28 +395,29 @@ function buildRecipeFromTranscript(transcript, theme = "neon") {
     return lines.join("\n");
   }
 
-  // Plain text transcript -> split into punchy 2.8s - 3.5s chunks
   const sentences = clean
     .replace(/\r/g, " ")
     .split(/(?<=[.!?।])\s+|\n+/)
     .map((s) => s.trim())
     .filter(Boolean);
 
+  const maxWordsPerChunk = isFast ? 6 : 8;
   const chunks = [];
   for (const s of sentences) {
     const words = s.split(/\s+/);
-    if (words.length <= 10) {
+    if (words.length <= maxWordsPerChunk + 2) {
       chunks.push(s);
     } else {
-      for (let i = 0; i < words.length; i += 8) {
-        chunks.push(words.slice(i, i + 8).join(" "));
+      for (let i = 0; i < words.length; i += maxWordsPerChunk) {
+        chunks.push(words.slice(i, i + maxWordsPerChunk).join(" "));
       }
     }
   }
 
   let cursor = 0;
-  chunks.slice(0, 25).forEach((chunk, idx) => {
-    const dur = Math.min(4.2, Math.max(2.2, chunk.split(/\s+/).length * 0.38));
+  chunks.slice(0, 30).forEach((chunk, idx) => {
+    const pace = isFast ? 0.32 : 0.38;
+    const dur = Math.min(4.0, Math.max(1.8, chunk.split(/\s+/).length * pace));
     const start = cursor;
     const end = cursor + dur;
     cursor = end;
@@ -348,10 +426,12 @@ function buildRecipeFromTranscript(transcript, theme = "neon") {
     const anim = animCycle[idx % animCycle.length];
     const hasStat = /\d+%|\₹\d+|\$\d+|\d+x/i.test(safe);
     if (idx === 0) {
-      lines.push(`${formatRecipeTime(start)} --> ${formatRecipeTime(end)} badge "WATCH THIS" sub="${safe}" in=pop`);
+      lines.push(
+        `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} badge "WATCH THIS" sub="${safe}" in=pop`
+      );
     } else if (hasStat) {
       lines.push(`${formatRecipeTime(start)} --> ${formatRecipeTime(end)} stat "${safe}" in=zoomIn`);
-    } else if (idx === chunks.length - 1 || idx % 4 === 3) {
+    } else if (idx === chunks.length - 1 || (isMotion ? idx % 2 === 1 : idx % 4 === 3)) {
       lines.push(`${formatRecipeTime(start)} --> ${formatRecipeTime(end)} card "${safe}" in=${anim}`);
     } else {
       lines.push(`${formatRecipeTime(start)} --> ${formatRecipeTime(end)} text "${safe}" in=${anim}`);
@@ -361,29 +441,58 @@ function buildRecipeFromTranscript(transcript, theme = "neon") {
   return lines.join("\n");
 }
 
-function buildAiHandoffPrompt(transcript, formatId, themeId) {
-  return `You are a motion graphics director for ClipForge Motion Studio.
-Turn the transcript below into a crisp, high-retention motion edit recipe in format ${formatId}.
+function buildAiHandoffPrompt(transcript, formatId, fps, editStyleId, themeId) {
+  const styleObj = EDIT_STYLES.find((s) => s.id === editStyleId) || EDIT_STYLES[0];
+  const synced = hasTimestampsInText(transcript);
 
-OUTPUT RULES:
-1. Reply ONLY with the [RECIPE] block (no extra commentary).
-2. Start with:
+  return `You are a professional motion graphics director for ClipForge Motion Studio.
+Convert the transcript below into a high-retention animated motion edit recipe.
+
+PROJECT SETTINGS:
+- Aspect Ratio: ${formatId}
+- Frame Rate: ${fps} fps
+- Edit Style: ${styleObj.name}
+- Theme: ${themeId}
+- Style Direction: ${styleObj.promptRules}
+- Timing Mode: ${
+    synced
+      ? "EXACT SRT TIMESTAMPS PROVIDED — keep animations tightly synced to the given timestamps."
+      : "No timestamps provided — pace each visual beat naturally at 2.2s–3.5s per punchy line."
+  }
+
+STRICT OUTPUT FORMAT:
+Reply ONLY with the [ASSETS] (if needed) and [RECIPE] blocks — no extra explanation.
+
+[ASSETS]
+(Only list image asset names if using Composed style; otherwise write "None")
+
+[RECIPE]
 v1
 theme=${themeId}
-3. Use exact timestamps matching the voiceover/SRT (or ~2.5s–3.5s per punchy line if plain text):
-MM:SS.ms --> MM:SS.ms <type> "<main text>" sub="<optional subtitle>" in=<animation>
+00:00.00 --> 00:02.60 badge "HOOK LABEL" sub="Opening headline here" in=pop
+00:02.60 --> 00:05.40 text "Short punchy kinetic line" in=fadeUp
+00:05.40 --> 00:08.20 stat "₹10,000" sub="Key stat or proof point" in=zoomIn
+00:08.20 --> 00:11.00 card "Key Takeaway" sub="Supporting insight" in=slideLeft
 
-SUPPORTED TYPES:
-- text "Main kinetic headline"
-- stat "₹50,000" sub="Saved every year"
-- card "Key Insight" sub="Short supporting point"
-- badge "STOP SCROLLING" sub="Hook line below badge"
-- image "asset_name" (only if referencing an uploaded image)
+SUPPORTED CUE TYPES:
+- text "Main kinetic headline" (optional sub="subtitle")
+- stat "Big Number / Metric" sub="Short context"
+- card "Card Title" sub="Short body line"
+- badge "PILL TAG" sub="Hero headline below pill"
+- image "asset_name" (only if referencing an asset from [ASSETS])
 
 SUPPORTED ANIMATIONS (in=):
 fadeUp, pop, slideLeft, slideRight, zoomIn, typewriter, fadeIn
 
-KEEP TEXT SHORT (3–9 words per cue) so it looks clean and cinematic on ${formatId}.
+OPTIONAL ATTRIBUTES:
+- color=#f59e0b (custom hex highlight color)
+- size=small | medium | large
+- pos=top | center | bottom
+
+RULES:
+1. Never put more than 8 words in a single main headline — split long ideas into consecutive beats.
+2. Vary cue types and animations so every 2–3 seconds feels fresh and cinematic on ${formatId}.
+3. Use valid MM:SS.ms --> MM:SS.ms timestamps in ascending order with zero syntax errors.
 
 TRANSCRIPT:
 ${transcript.trim() || "(Paste your transcript here)"}`;
@@ -420,14 +529,12 @@ function drawRoundedRect(ctx, x, y, w, h, r) {
 function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages) {
   const theme = THEMES[parsed.theme] || THEMES.dark;
 
-  // 1. Animated Background
   const grad = ctx.createLinearGradient(0, 0, width, height);
   grad.addColorStop(0, parsed.bgColor || theme.bg1);
   grad.addColorStop(1, parsed.bgColor || theme.bg2);
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, width, height);
 
-  // Subtle moving ambient glows
   const glowX = width * (0.25 + 0.15 * Math.sin(currentTime * 0.7));
   const glowY = height * (0.3 + 0.12 * Math.cos(currentTime * 0.5));
   const rad1 = ctx.createRadialGradient(glowX, glowY, 10, glowX, glowY, width * 0.55);
@@ -449,7 +556,6 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
   ctx.fillStyle = rad2;
   ctx.fillRect(0, 0, width, height);
 
-  // Subtle motion grid
   ctx.save();
   ctx.strokeStyle = parsed.theme === "light" ? "rgba(15,23,42,0.05)" : "rgba(255,255,255,0.04)";
   ctx.lineWidth = 1;
@@ -469,7 +575,6 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
   }
   ctx.restore();
 
-  // 2. Render Active Cues
   const activeCues = parsed.cues.filter((c) => currentTime >= c.start && currentTime <= c.end);
   const minDim = Math.min(width, height);
 
@@ -508,7 +613,10 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
         scale = 0.85 + 0.15 * ease + (elapsed / dur) * 0.04;
         break;
       case "typewriter": {
-        const chars = Math.max(1, Math.floor(cue.text.length * Math.min(1, elapsed / Math.min(1.4, dur * 0.65))));
+        const chars = Math.max(
+          1,
+          Math.floor(cue.text.length * Math.min(1, elapsed / Math.min(1.4, dur * 0.65)))
+        );
         displayMain = cue.text.slice(0, chars);
         alpha = fadeOut;
         break;
@@ -554,7 +662,6 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
         drawRoundedRect(ctx, -drawW / 2, -drawH / 2, drawW, drawH, 24);
         ctx.stroke();
       } else {
-        // Fallback placeholder if asset name not uploaded yet
         const boxW = width * 0.68;
         const boxH = minDim * 0.28;
         ctx.fillStyle = theme.cardBg;
@@ -620,7 +727,6 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
       ctx.fill();
       ctx.stroke();
 
-      // Top accent strip
       ctx.fillStyle = cue.color || theme.accent;
       drawRoundedRect(ctx, -cardW * 0.14, -cardH / 2 + 16, cardW * 0.28, 6, 4);
       ctx.fill();
@@ -672,7 +778,6 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
         });
       }
     } else {
-      // Default kinetic text
       const fontSize = Math.round(minDim * 0.074 * sizeMult);
       ctx.font = `800 ${fontSize}px Inter, system-ui, sans-serif`;
       ctx.textAlign = "center";
@@ -704,7 +809,6 @@ function renderMotionFrame(ctx, width, height, currentTime, parsed, loadedImages
     ctx.restore();
   });
 
-  // Subtle progress line at very bottom of video
   const progress = parsed.totalDuration > 0 ? Math.min(1, currentTime / parsed.totalDuration) : 0;
   ctx.fillStyle = "rgba(255,255,255,0.12)";
   ctx.fillRect(0, height - 6, width, 6);
@@ -730,6 +834,8 @@ export default function MotionEditor({ projects = [], showToast }) {
   const [projectId, setProjectId] = useState(() => `motion_${Date.now()}`);
   const [projectTitle, setProjectTitle] = useState("Untitled Motion Edit");
   const [formatId, setFormatId] = useState("16:9");
+  const [fps, setFps] = useState(30);
+  const [editStyleId, setEditStyleId] = useState("dynamic_no_assets");
   const [themeId, setThemeId] = useState("dark");
   const [recipeDraft, setRecipeDraft] = useState("");
   const [appliedRecipe, setAppliedRecipe] = useState("");
@@ -744,14 +850,21 @@ export default function MotionEditor({ projects = [], showToast }) {
   const [exportPercent, setExportPercent] = useState(0);
 
   // Assets (Images + Voiceover Audio)
-  const [imageAssets, setImageAssets] = useState([]); // [{ name, url }]
+  const [imageAssets, setImageAssets] = useState([]);
   const loadedImagesRef = useRef({});
-  const [audioAsset, setAudioAsset] = useState(null); // { name, url }
+  const [audioAsset, setAudioAsset] = useState(null);
   const audioElRef = useRef(null);
 
-  // Get Code State
+  // Get Transcript (In-App Embedded + Confirm Modal)
+  const [transcriptTab, setTranscriptTab] = useState("embed"); // embed | mic | clips
+  const [iframeKey, setIframeKey] = useState(0);
+  const [confirmModalOpen, setConfirmModalOpen] = useState(false);
+  const [pendingTranscript, setPendingTranscript] = useState("");
+
+  // Get Code + Handoff State
   const [transcriptInput, setTranscriptInput] = useState("");
   const [generatedPrompt, setGeneratedPrompt] = useState("");
+  const [showPromptBox, setShowPromptBox] = useState(false);
   const [copiedPrompt, setCopiedPrompt] = useState(false);
 
   // Live Mic Dictation State
@@ -771,6 +884,16 @@ export default function MotionEditor({ projects = [], showToast }) {
   const parsedRecipe = useMemo(
     () => parseRecipe(appliedRecipe, themeId),
     [appliedRecipe, themeId]
+  );
+
+  const transcriptHasTiming = useMemo(
+    () => hasTimestampsInText(transcriptInput),
+    [transcriptInput]
+  );
+
+  const pendingHasTiming = useMemo(
+    () => hasTimestampsInText(pendingTranscript),
+    [pendingTranscript]
   );
 
   const allClipForgeClips = useMemo(() => {
@@ -800,6 +923,7 @@ export default function MotionEditor({ projects = [], showToast }) {
       id: override.id || projectId,
       title: (override.title || projectTitle || "Untitled Motion Edit").trim(),
       formatId: override.formatId || formatId,
+      fps: override.fps || fps,
       themeId: override.themeId || themeId,
       code: override.code !== undefined ? override.code : recipeDraft || appliedRecipe,
       updatedAt: new Date().toISOString(),
@@ -831,6 +955,7 @@ export default function MotionEditor({ projects = [], showToast }) {
     setProjectId(proj.id);
     setProjectTitle(proj.title || "Motion Edit");
     setFormatId(proj.formatId || "16:9");
+    setFps(proj.fps || 30);
     setThemeId(proj.themeId || "dark");
     setRecipeDraft(proj.code || "");
     setAppliedRecipe(proj.code || "");
@@ -847,8 +972,8 @@ export default function MotionEditor({ projects = [], showToast }) {
     const newId = `motion_${Date.now()}`;
     setProjectId(newId);
     setProjectTitle(starter?.title || "Untitled Motion Edit");
-    setFormatId(starter?.format || "16:9");
-    setThemeId(starter?.theme || "dark");
+    setFormatId(starter?.format || formatId || "16:9");
+    setThemeId(starter?.theme || themeId || "dark");
     const starterCode = starter?.code || "";
     setRecipeDraft(starterCode);
     setAppliedRecipe(starterCode);
@@ -869,7 +994,7 @@ export default function MotionEditor({ projects = [], showToast }) {
     }
   };
 
-  // Preload uploaded image assets into HTMLImageElements for Canvas
+  // Preload image assets for Canvas
   useEffect(() => {
     const map = {};
     imageAssets.forEach((asset) => {
@@ -880,7 +1005,7 @@ export default function MotionEditor({ projects = [], showToast }) {
     loadedImagesRef.current = map;
   }, [imageAssets]);
 
-  // Draw canvas whenever frame, recipe, or format changes
+  // Render canvas frame
   useEffect(() => {
     if (screen !== "workspace" || !canvasRef.current) return;
     const canvas = canvasRef.current;
@@ -935,12 +1060,94 @@ export default function MotionEditor({ projects = [], showToast }) {
     };
   }, [isPlaying, exporting, parsedRecipe.totalDuration, audioAsset]);
 
-  const handleApplyCode = () => {
-    if (!recipeDraft.trim()) {
+  // Take text from clipboard -> open "Use this transcript?" review sheet
+  const handleTakeText = async (fromClipboard = true) => {
+    if (fromClipboard && navigator.clipboard?.readText) {
+      try {
+        const clipText = await navigator.clipboard.readText();
+        if (clipText && clipText.trim()) {
+          setPendingTranscript(clipText.trim());
+          setConfirmModalOpen(true);
+          return;
+        }
+      } catch {
+        // Clipboard permission denied — open sheet so user can paste manually
+      }
+    }
+    setPendingTranscript(transcriptInput || "");
+    setConfirmModalOpen(true);
+    if (fromClipboard) {
+      notify("Paste your copied transcript/SRT in the box below and tap 'Use it'.", "info");
+    }
+  };
+
+  // Save transcript text as .srt or .txt file
+  const handleSaveTranscriptFile = (text) => {
+    if (!text.trim()) return;
+    const isSrt = hasTimestampsInText(text);
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `clipforge_transcript.${isSrt ? "srt" : "txt"}`;
+    a.click();
+    URL.revokeObjectURL(url);
+    notify(`Saved as clipforge_transcript.${isSrt ? "srt" : "txt"}`, "success");
+  };
+
+  // Confirm transcript -> auto-redirect straight to Get Code
+  const handleConfirmUseTranscript = () => {
+    if (!pendingTranscript.trim()) {
+      notify("Please paste or enter your transcript first.", "error");
+      return;
+    }
+    setTranscriptInput(pendingTranscript.trim());
+    setConfirmModalOpen(false);
+    setGeneratedPrompt("");
+    setShowPromptBox(false);
+    setScreen("get_code");
+    notify("Transcript loaded! Pick your format & style, then tap Get Prompt.", "success");
+  };
+
+  // Download generated prompt as .txt (ideal for mobile Claude/ChatGPT attachment)
+  const handleSavePromptTxt = () => {
+    if (!generatedPrompt) return;
+    const blob = new Blob([generatedPrompt], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `clipforge_motion_prompt_${formatId.replace(":", "x")}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    notify("Prompt saved as .txt! Attach it in Claude, ChatGPT, or Gemini.", "success");
+  };
+
+  // Paste AI code from clipboard directly into Workspace -> Code tab
+  const handlePasteCodeFromClipboard = async () => {
+    if (!navigator.clipboard?.readText) {
+      notify("Paste directly into the code box below using Ctrl+V / Long-press Paste.", "info");
+      return;
+    }
+    try {
+      const txt = await navigator.clipboard.readText();
+      if (!txt || !txt.trim()) {
+        notify("Clipboard is empty. Copy the AI reply first.", "error");
+        return;
+      }
+      setRecipeDraft(txt.trim());
+      notify("Code pasted! Tap 'Apply & preview' to watch your motion edit.", "success");
+    } catch {
+      notify("Tap inside the code box and paste manually.", "info");
+    }
+  };
+
+  const handleApplyCode = (overrideCode = null) => {
+    const codeToUse = overrideCode !== null ? overrideCode : recipeDraft;
+    if (!codeToUse.trim()) {
       notify("Paste a recipe code first or pick a starter template.", "error");
       return;
     }
-    const testParsed = parseRecipe(recipeDraft, themeId);
+    const testParsed = parseRecipe(codeToUse, themeId);
     if (testParsed.cues.length === 0) {
       notify(
         'No valid cues found. Example: 00:00.00 --> 00:03.00 text "Hello" in=fadeUp',
@@ -948,16 +1155,17 @@ export default function MotionEditor({ projects = [], showToast }) {
       );
       return;
     }
-    if (appliedRecipe && appliedRecipe !== recipeDraft) {
+    if (appliedRecipe && appliedRecipe !== codeToUse) {
       setHistory((h) => [...h.slice(-20), appliedRecipe]);
       setFuture([]);
     }
     setThemeId(testParsed.theme);
-    setAppliedRecipe(recipeDraft);
+    setRecipeDraft(codeToUse);
+    setAppliedRecipe(codeToUse);
     setCurrentTime(0);
     currentTimeRef.current = 0;
     setIsPlaying(true);
-    saveProjectToRecents({ code: recipeDraft, themeId: testParsed.theme });
+    saveProjectToRecents({ code: codeToUse, themeId: testParsed.theme });
     notify(`Applied ${testParsed.cues.length} motion cues! Playing preview.`, "success");
   };
 
@@ -979,7 +1187,6 @@ export default function MotionEditor({ projects = [], showToast }) {
     setRecipeDraft(next);
   };
 
-  // Timeline Cue Editing
   const updateCuesFromTimeline = (nextCues) => {
     const newCode = serializeCuesToRecipe(nextCues, parsedRecipe.theme);
     setHistory((h) => [...h.slice(-20), appliedRecipe]);
@@ -991,9 +1198,7 @@ export default function MotionEditor({ projects = [], showToast }) {
 
   const handleAddTimelineCue = () => {
     const lastEnd =
-      parsedRecipe.cues.length > 0
-        ? Math.max(...parsedRecipe.cues.map((c) => c.end))
-        : 0;
+      parsedRecipe.cues.length > 0 ? Math.max(...parsedRecipe.cues.map((c) => c.end)) : 0;
     const next = [
       ...parsedRecipe.cues,
       {
@@ -1010,10 +1215,9 @@ export default function MotionEditor({ projects = [], showToast }) {
       },
     ];
     updateCuesFromTimeline(next);
-    notify("Added new cue to timeline.", "success");
+    notify("Added new scene to timeline.", "success");
   };
 
-  // Save/Open JSON Project File
   const handleDownloadProjectFile = () => {
     saveProjectToRecents();
     const payload = {
@@ -1021,6 +1225,7 @@ export default function MotionEditor({ projects = [], showToast }) {
       version: "v1",
       title: projectTitle,
       formatId,
+      fps,
       themeId,
       code: recipeDraft || appliedRecipe,
       savedAt: new Date().toISOString(),
@@ -1032,7 +1237,7 @@ export default function MotionEditor({ projects = [], showToast }) {
     a.download = `${projectTitle.toLowerCase().replace(/[^a-z0-9]+/g, "_") || "motion_edit"}.clipforge.json`;
     a.click();
     URL.revokeObjectURL(url);
-    notify("Project saved to Recent Projects & downloaded as file.", "success");
+    notify("Project saved to Recent Projects & downloaded.", "success");
   };
 
   const handleOpenProjectFile = (e) => {
@@ -1045,6 +1250,7 @@ export default function MotionEditor({ projects = [], showToast }) {
         if (!parsed.code) throw new Error("Invalid project file.");
         setProjectTitle(parsed.title || file.name.replace(/\.json$/i, ""));
         setFormatId(parsed.formatId || "16:9");
+        setFps(parsed.fps || 30);
         setThemeId(parsed.themeId || "dark");
         setRecipeDraft(parsed.code);
         setAppliedRecipe(parsed.code);
@@ -1059,7 +1265,7 @@ export default function MotionEditor({ projects = [], showToast }) {
     e.target.value = "";
   };
 
-  // Free Browser Canvas Video Export (WebM + Optional Voiceover Audio)
+  // Free Browser Canvas Video Export (Supports 30fps & 60fps + Audio Sync)
   const handleExportVideo = async () => {
     if (!canvasRef.current || parsedRecipe.cues.length === 0) {
       notify("Apply a motion recipe before exporting.", "error");
@@ -1077,7 +1283,7 @@ export default function MotionEditor({ projects = [], showToast }) {
     try {
       const canvas = canvasRef.current;
       const ctx = canvas.getContext("2d");
-      const videoStream = canvas.captureStream(30);
+      const videoStream = canvas.captureStream(fps);
       const tracks = [...videoStream.getVideoTracks()];
 
       let audioCtx = null;
@@ -1106,7 +1312,10 @@ export default function MotionEditor({ projects = [], showToast }) {
       ];
       const chosenMime = mimeTypes.find((m) => MediaRecorder.isTypeSupported(m)) || "";
       const recorder = chosenMime
-        ? new MediaRecorder(combinedStream, { mimeType: chosenMime, videoBitsPerSecond: 4500000 })
+        ? new MediaRecorder(combinedStream, {
+            mimeType: chosenMime,
+            videoBitsPerSecond: fps === 60 ? 6500000 : 4500000,
+          })
         : new MediaRecorder(combinedStream);
 
       const chunks = [];
@@ -1158,12 +1367,12 @@ export default function MotionEditor({ projects = [], showToast }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${projectTitle.toLowerCase().replace(/[^a-z0-9]+/g, "_") || "clipforge_motion"}.webm`;
+      a.download = `${projectTitle.toLowerCase().replace(/[^a-z0-9]+/g, "_") || "clipforge_motion"}_${fps}fps.webm`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 5000);
 
       setExportPercent(100);
-      notify("Motion video exported & downloaded! (100% Free)", "success");
+      notify(`Motion video (${fps}fps) exported & downloaded! (100% Free)`, "success");
     } catch (err) {
       notify(err?.message || "Export failed. Please try again in Chrome/Edge.", "error");
     } finally {
@@ -1171,7 +1380,6 @@ export default function MotionEditor({ projects = [], showToast }) {
     }
   };
 
-  // Transcript File Upload (.txt / .srt)
   const handleTranscriptUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1184,7 +1392,6 @@ export default function MotionEditor({ projects = [], showToast }) {
     e.target.value = "";
   };
 
-  // Import Captions from Existing ClipForge AI Clips
   const handleImportFromClip = (clipId) => {
     const clip = allClipForgeClips.find((c) => c.id === clipId);
     if (!clip) return;
@@ -1207,7 +1414,6 @@ export default function MotionEditor({ projects = [], showToast }) {
     notify("Clip transcript imported!", "success");
   };
 
-  // Browser Speech-to-Text Dictation
   const toggleMicDictation = () => {
     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRec) {
@@ -1246,7 +1452,6 @@ export default function MotionEditor({ projects = [], showToast }) {
   if (screen === "home") {
     return (
       <div className="max-w-3xl mx-auto space-y-6">
-        {/* Studio Header */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-500 text-black font-black text-sm flex items-center justify-center shadow-lg shadow-amber-500/20">
@@ -1270,7 +1475,6 @@ export default function MotionEditor({ projects = [], showToast }) {
 
         <div className="text-sm font-semibold text-slate-300">What do you want to do?</div>
 
-        {/* 3 Primary Action Cards */}
         <div className="space-y-3">
           <button
             onClick={() => startFreshWorkspace("code")}
@@ -1302,8 +1506,8 @@ export default function MotionEditor({ projects = [], showToast }) {
               <div>
                 <div className="font-bold text-base text-white">Get code</div>
                 <div className="text-xs text-slate-400 mt-0.5 leading-relaxed">
-                  No code yet? Paste or upload a transcript (.txt / .srt), pick a format, and get a
-                  ready prompt — or auto-build in 1 click.
+                  No code yet? Add a transcript, pick aspect ratio, FPS &amp; edit style, and get
+                  your ready handoff prompt.
                 </div>
               </div>
             </div>
@@ -1311,7 +1515,10 @@ export default function MotionEditor({ projects = [], showToast }) {
           </button>
 
           <button
-            onClick={() => setScreen("get_transcript")}
+            onClick={() => {
+              setTranscriptTab("embed");
+              setScreen("get_transcript");
+            }}
             className="w-full text-left p-5 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 transition flex items-center justify-between gap-4"
           >
             <div className="flex items-center gap-4">
@@ -1321,8 +1528,8 @@ export default function MotionEditor({ projects = [], showToast }) {
               <div>
                 <div className="font-bold text-base text-white">Get transcript</div>
                 <div className="text-xs text-slate-400 mt-0.5 leading-relaxed">
-                  No transcript yet? Transcribe audio for free, dictate live, or import captions
-                  directly from your ClipForge clips.
+                  No transcript yet? Upload your audio to a free transcriber right inside this app
+                  — without leaving ClipForge AI.
                 </div>
               </div>
             </div>
@@ -1330,7 +1537,7 @@ export default function MotionEditor({ projects = [], showToast }) {
           </button>
         </div>
 
-        {/* 1-Click Starter Templates */}
+        {/* Starter Templates */}
         <div className="space-y-2.5 pt-2">
           <div className="text-xs font-bold uppercase tracking-wider text-slate-400">
             Quick Starter Templates (Try Instantly)
@@ -1349,7 +1556,7 @@ export default function MotionEditor({ projects = [], showToast }) {
                   </span>
                 </div>
                 <div className="font-bold text-xs text-white pt-1">{tpl.title}</div>
-                <div className="text-[11px] text-slate-400">Click to preview & edit</div>
+                <div className="text-[11px] text-slate-400">Click to preview &amp; edit</div>
               </button>
             ))}
           </div>
@@ -1381,7 +1588,8 @@ export default function MotionEditor({ projects = [], showToast }) {
                     <div className="min-w-0">
                       <div className="font-bold text-sm text-white truncate">{proj.title}</div>
                       <div className="text-[11px] text-slate-400">
-                        {relativeTimeLabel(proj.updatedAt)} · {proj.formatId || "16:9"}
+                        {relativeTimeLabel(proj.updatedAt)} · {proj.formatId || "16:9"} ·{" "}
+                        {proj.fps || 30}fps
                       </div>
                     </div>
                   </div>
@@ -1405,7 +1613,282 @@ export default function MotionEditor({ projects = [], showToast }) {
   }
 
   // =========================================================================
-  // RENDER 2: GET CODE (Prompt Generator + 1-Click Auto Motion Builder)
+  // RENDER 2: GET TRANSCRIPT (IN-APP EMBEDDED TRANSCRIBER + TAKE TEXT BAR)
+  // =========================================================================
+  if (screen === "get_transcript") {
+    return (
+      <div className="max-w-4xl mx-auto space-y-3 relative">
+        {/* Top In-App Browser Header */}
+        <div className="p-3 rounded-2xl bg-[#0d0d1a] border border-white/15 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              onClick={() => setScreen("home")}
+              className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 shrink-0"
+              title="Close"
+            >
+              <X className="w-4 h-4"/>
+            </button>
+            <div className="min-w-0">
+              <div className="font-extrabold text-sm text-white truncate">aifreeforever.com</div>
+              <div className="text-[11px] text-slate-400 truncate">
+                Upload audio → select Subtitles (SRT) → copy output → tap Take text below
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              onClick={() => setIframeKey((k) => k + 1)}
+              className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300"
+              title="Reload transcriber"
+            >
+              <RefreshCw className="w-4 h-4"/>
+            </button>
+            <button
+              onClick={() => {
+                window.open(
+                  TRANSCRIBE_URL,
+                  "clipforge_transcriber",
+                  "width=480,height=760,noopener,noreferrer"
+                );
+              }}
+              className="px-2.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-cyan-300 flex items-center gap-1"
+              title="Open in side popup if iframe is blocked"
+            >
+              <ExternalLink className="w-3.5 h-3.5"/>
+              <span className="hidden sm:inline">Popup</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Source Switcher Pills */}
+        <div className="flex flex-wrap gap-2">
+          {[
+            { id: "embed", label: "In-App Speech to Text (Whisper)", icon: Sparkles },
+            { id: "mic", label: "Live Mic / Manual Paste", icon: Mic },
+            ...(allClipForgeClips.length > 0
+              ? [{ id: "clips", label: `My ClipForge Clips (${allClipForgeClips.length})`, icon: Film }]
+              : []),
+          ].map((tab) => {
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setTranscriptTab(tab.id)}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition ${
+                  transcriptTab === tab.id
+                    ? "bg-amber-500/20 border-amber-400 text-amber-200"
+                    : "bg-white/5 border-white/10 text-slate-400 hover:text-white"
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5"/>
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Body Area */}
+        {transcriptTab === "embed" && (
+          <div className="rounded-2xl overflow-hidden border border-white/15 bg-[#090914] space-y-0">
+            <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-400/25 text-[11px] text-amber-200 flex flex-wrap items-center justify-between gap-2">
+              <span>
+                <strong>Quick Tip:</strong> Pick <strong>Subtitles (SRT)</strong> for exact timing,
+                copy the generated text, then tap the orange <strong>Take text</strong> button below.
+              </span>
+              <button
+                onClick={() =>
+                  window.open(
+                    TRANSCRIBE_URL,
+                    "clipforge_transcriber",
+                    "width=480,height=760,noopener,noreferrer"
+                  )
+                }
+                className="underline text-amber-300 font-bold"
+              >
+                Not loading? Open Popup ↗
+              </button>
+            </div>
+            <iframe
+              key={iframeKey}
+              src={TRANSCRIBE_URL}
+              title="Free Speech to Text Transcriber"
+              allow="microphone; clipboard-read; clipboard-write"
+              className="w-full h-[540px] sm:h-[600px] bg-[#0b0b18]"
+            />
+          </div>
+        )}
+
+        {transcriptTab === "mic" && (
+          <div className="p-5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="font-bold text-sm text-white">Live Mic Dictation / Paste SRT</div>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Speak directly or upload a .txt / .srt file, then tap Take text below.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={toggleMicDictation}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition ${
+                    listening
+                      ? "bg-rose-500/25 border-rose-400 text-rose-200 animate-pulse"
+                      : "bg-white/10 hover:bg-white/15 border-white/15 text-white"
+                  }`}
+                >
+                  {listening ? <MicOff className="w-4 h-4"/> : <Mic className="w-4 h-4"/>}
+                  {listening ? "Stop Recording" : "Record Now"}
+                </button>
+                <label className="px-3.5 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/30 text-amber-200 text-xs font-bold cursor-pointer flex items-center gap-1.5">
+                  <Upload className="w-3.5 h-3.5"/> .srt / .txt
+                  <input
+                    type="file"
+                    accept=".txt,.srt,.vtt"
+                    className="hidden"
+                    onChange={handleTranscriptUpload}
+                  />
+                </label>
+              </div>
+            </div>
+
+            <textarea
+              rows={9}
+              value={transcriptInput}
+              onChange={(e) => setTranscriptInput(e.target.value)}
+              placeholder="Speak into your mic or paste your transcript / SRT here..."
+              className="w-full p-4 rounded-xl bg-black/50 border border-white/10 text-xs sm:text-sm text-white focus:outline-none focus:border-amber-400"
+            />
+          </div>
+        )}
+
+        {transcriptTab === "clips" && (
+          <div className="p-5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-3">
+            <div className="font-bold text-sm text-white">
+              Select a ClipForge Clip to Grab Its Synced SRT Captions
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {allClipForgeClips.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => {
+                    handleImportFromClip(c.id);
+                    setScreen("get_code");
+                  }}
+                  className="p-3.5 rounded-xl bg-black/40 hover:bg-white/10 border border-white/10 text-left text-xs flex items-center justify-between gap-2"
+                >
+                  <span className="truncate font-semibold text-slate-200">{c.title}</span>
+                  <span className="text-amber-300 shrink-0 font-bold">Use SRT →</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Sticky Bottom Action Bar (Exact Take text + Paste Flow) */}
+        <div className="sticky bottom-3 z-20 p-3 rounded-2xl bg-[#0c0c18]/95 backdrop-blur-xl border border-white/15 shadow-2xl flex items-center justify-between gap-3">
+          <button
+            onClick={() => setScreen("home")}
+            className="p-3 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 shrink-0"
+            title="Back"
+          >
+            <ArrowLeft className="w-4 h-4"/>
+          </button>
+
+          <button
+            onClick={() => handleTakeText(true)}
+            className="flex-1 py-3 px-4 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:opacity-95 text-black font-extrabold text-sm flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20"
+          >
+            <Clipboard className="w-4 h-4"/>
+            Take text
+          </button>
+
+          <button
+            onClick={() => handleTakeText(false)}
+            className="px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-slate-200 flex items-center gap-1.5 shrink-0"
+          >
+            <Copy className="w-4 h-4"/>
+            Paste
+          </button>
+        </div>
+
+        {/* "Use this transcript?" Confirmation Modal */}
+        {confirmModalOpen && (
+          <div className="fixed inset-0 z-[75] bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-3 sm:p-4">
+            <div className="w-full max-w-xl rounded-3xl bg-[#11111e] border border-white/15 p-5 sm:p-6 space-y-4 shadow-2xl">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <h3 className="text-lg font-extrabold text-white">Use this transcript?</h3>
+                  <div className="text-xs text-slate-400 mt-0.5">
+                    {pendingTranscript.length.toLocaleString()} characters · ready to edit or send
+                    to Get code
+                  </div>
+                </div>
+                <button
+                  onClick={() => setConfirmModalOpen(false)}
+                  className="p-1.5 rounded-lg hover:bg-white/10 text-slate-400"
+                >
+                  <X className="w-4 h-4"/>
+                </button>
+              </div>
+
+              {pendingTranscript.trim() && !pendingHasTiming ? (
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-400/35 text-xs text-amber-200 flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5"/>
+                  <span>
+                    <strong>No timestamps detected.</strong> An <strong>.srt</strong> syncs
+                    animations to your voiceover; plain text will use automatic pacing.
+                  </span>
+                </div>
+              ) : pendingHasTiming ? (
+                <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-400/35 text-xs text-emerald-200 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0"/>
+                  <span>
+                    <strong>SRT timestamps detected!</strong> Your motion animations will sync to
+                    your voiceover.
+                  </span>
+                </div>
+              ) : null}
+
+              <textarea
+                rows={8}
+                value={pendingTranscript}
+                onChange={(e) => setPendingTranscript(e.target.value)}
+                placeholder="Paste your copied transcript or .srt subtitles here..."
+                className="w-full p-3.5 rounded-2xl bg-black/60 border border-white/10 text-xs font-mono text-slate-100 focus:outline-none focus:border-amber-400"
+              />
+
+              <div className="grid grid-cols-3 gap-2.5">
+                <button
+                  onClick={() => setConfirmModalOpen(false)}
+                  className="py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-slate-300"
+                >
+                  Not this
+                </button>
+                <button
+                  disabled={!pendingTranscript.trim()}
+                  onClick={() => handleSaveTranscriptFile(pendingTranscript)}
+                  className="py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-slate-200 disabled:opacity-40"
+                >
+                  Save file
+                </button>
+                <button
+                  onClick={handleConfirmUseTranscript}
+                  className="py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:opacity-95 text-xs font-extrabold text-black shadow-lg"
+                >
+                  Use it
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // =========================================================================
+  // RENDER 3: GET CODE (Format, 30/60fps, 5 Edit Styles, Handoff Ready)
   // =========================================================================
   if (screen === "get_code") {
     return (
@@ -1419,37 +1902,91 @@ export default function MotionEditor({ projects = [], showToast }) {
           </button>
           <h2 className="font-extrabold text-base sm:text-lg text-white">Get code</h2>
           <button
-            onClick={() => setScreen("workspace")}
-            className="text-xs text-cyan-300 font-semibold hover:underline"
+            onClick={() => {
+              setWorkspaceTab("code");
+              setScreen("workspace");
+            }}
+            className="text-xs text-amber-300 font-semibold hover:underline"
           >
             Open Editor →
           </button>
         </div>
 
         {/* How this works */}
-        <div className="p-5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-2.5 text-xs text-slate-300">
+        <div className="p-5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-2 text-xs text-slate-300">
           <div className="font-bold text-sm text-white">How this works</div>
-          <ol className="space-y-1.5 list-decimal list-inside text-slate-300 leading-relaxed">
-            <li>Add your transcript below (or upload a .txt / .srt file).</li>
-            <li>Pick your video format (9:16, 16:9, or 1:1) and visual theme.</li>
+          <ol className="space-y-1 list-decimal list-inside leading-relaxed">
+            <li>Add your transcript below (or grab one from Get transcript).</li>
+            <li>Pick your aspect ratio, frame rate (30 / 60 fps), and edit style.</li>
             <li>
-              Tap <strong>Get Prompt</strong> — copy and paste it into Claude, ChatGPT, or Gemini to
-              get custom motion code (or tap <strong>Auto-Build Instantly</strong> with 1 click).
+              Tap <strong>Get Prompt</strong> — we bundle all editing rules, animation vocabulary,
+              and your transcript into a single handoff file.
             </li>
-            <li>Come back to &quot;I have code&quot;, paste it, and preview or export for free.</li>
+            <li>Paste or attach that in Claude, ChatGPT, or Gemini. It returns the code.</li>
+            <li>
+              Tap <strong>Open the editor</strong>, paste the code into &quot;I have code&quot;, and
+              preview or export free!
+            </li>
           </ol>
         </div>
 
-        {/* Transcript Input Card */}
-        <div className="p-5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-4">
+        {/* Transcript Section */}
+        <div className="p-5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-3.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <div className="font-bold text-sm text-white">Transcript</div>
               <div className="text-[11px] text-amber-300 mt-0.5 flex items-center gap-1">
                 <Clock className="w-3.5 h-3.5 shrink-0"/>
-                Tip: Upload 30-second chunks or an .srt file so animations sync to your voiceover.
+                For a better experience, upload 30-second chunks or an .srt file for voice sync.
               </div>
             </div>
+            <button
+              onClick={() => {
+                setTranscriptTab("embed");
+                setScreen("get_transcript");
+              }}
+              className="text-xs text-cyan-300 font-semibold hover:underline"
+            >
+              Need transcript? Open Transcriber →
+            </button>
+          </div>
+
+          {transcriptInput.trim() && !transcriptHasTiming && (
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-400/35 text-xs text-amber-200 flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5"/>
+              <span>
+                No timestamps in this text. Upload an <strong>.srt</strong> to sync animations
+                precisely, or continue with automatic pacing.
+              </span>
+            </div>
+          )}
+
+          {transcriptHasTiming && (
+            <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-400/30 text-xs text-emerald-200 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0"/>
+              <span>Timestamps detected — ready for voice-synced motion edits.</span>
+            </div>
+          )}
+
+          <textarea
+            rows={5}
+            value={transcriptInput}
+            onChange={(e) => setTranscriptInput(e.target.value)}
+            placeholder="Paste your transcript or .srt subtitles here..."
+            className="w-full p-4 rounded-xl bg-black/50 border border-white/10 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-400"
+          />
+
+          <div className="flex flex-wrap gap-2">
+            <label className="flex-1 py-2.5 px-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-amber-300 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition">
+              <Upload className="w-4 h-4"/>
+              Upload transcript (.txt or .srt)
+              <input
+                type="file"
+                accept=".txt,.srt,.vtt"
+                className="hidden"
+                onChange={handleTranscriptUpload}
+              />
+            </label>
 
             {allClipForgeClips.length > 0 && (
               <select
@@ -1457,9 +1994,9 @@ export default function MotionEditor({ projects = [], showToast }) {
                 onChange={(e) => {
                   if (e.target.value) handleImportFromClip(e.target.value);
                 }}
-                className="px-3 py-1.5 rounded-xl bg-[#0d0d1d] border border-cyan-400/30 text-xs text-cyan-200"
+                className="px-3 py-2.5 rounded-xl bg-[#0d0d1d] border border-cyan-400/30 text-xs text-cyan-200"
               >
-                <option value="">Import from ClipForge Clip...</option>
+                <option value="">Import from My Clips...</option>
                 {allClipForgeClips.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.title}
@@ -1468,54 +2005,70 @@ export default function MotionEditor({ projects = [], showToast }) {
               </select>
             )}
           </div>
+        </div>
 
-          <textarea
-            rows={6}
-            value={transcriptInput}
-            onChange={(e) => setTranscriptInput(e.target.value)}
-            placeholder="Paste your transcript or .srt subtitles here..."
-            className="w-full p-4 rounded-xl bg-black/50 border border-white/10 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-400"
-          />
+        {/* Aspect Ratio Cards */}
+        <div className="space-y-2.5">
+          <div className="text-sm font-bold text-white">Aspect ratio</div>
+          <div className="grid grid-cols-3 gap-3">
+            {FORMAT_OPTIONS.map((f) => {
+              const Icon = f.icon;
+              const active = formatId === f.id;
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setFormatId(f.id)}
+                  className={`p-4 rounded-2xl border text-center transition space-y-1.5 flex flex-col items-center ${
+                    active
+                      ? "bg-amber-500/15 border-amber-400/70 text-white shadow-lg shadow-amber-500/10"
+                      : "bg-white/[0.03] border-white/10 text-slate-400 hover:border-white/25"
+                  }`}
+                >
+                  <Icon "text-amber-400" "text-slate-400"}`} ${active : ? className="{`w-5" h-5/>
+                  <div className="font-extrabold text-sm">{f.name}</div>
+                  <div className="text-[11px] opacity-80">{f.desc}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
-          <label className="w-full py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-amber-300 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition">
-            <Upload className="w-4 h-4"/>
-            Upload transcript (.txt or .srt)
-            <input
-              type="file"
-              accept=".txt,.srt,.vtt"
-              className="hidden"
-              onChange={handleTranscriptUpload}
-            />
-          </label>
+        {/* Frame Rate Cards */}
+        <div className="space-y-2.5">
+          <div className="text-sm font-bold text-white">Frame rate</div>
+          <div className="grid grid-cols-2 gap-3">
+            {FPS_OPTIONS.map((opt) => {
+              const active = fps === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setFps(opt.value)}
+                  className={`p-4 rounded-2xl border text-center transition space-y-1 ${
+                    active
+                      ? "bg-amber-500/15 border-amber-400/70 text-white shadow-lg shadow-amber-500/10"
+                      : "bg-white/[0.03] border-white/10 text-slate-400 hover:border-white/25"
+                  }`}
+                >
+                  <div className="font-extrabold text-sm">{opt.label}</div>
+                  <div className="text-[11px] opacity-80">{opt.sub}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
-          {/* Format & Theme Pickers */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-            <div>
-              <label className="text-xs text-slate-400 block mb-1.5">Format (Aspect Ratio)</label>
-              <div className="grid grid-cols-3 gap-2">
-                {FORMAT_OPTIONS.map((f) => (
-                  <button
-                    key={f.id}
-                    type="button"
-                    onClick={() => setFormatId(f.id)}
-                    className={`py-2 rounded-xl text-xs font-bold border transition ${
-                      formatId === f.id
-                        ? "bg-amber-500/20 border-amber-400 text-amber-200"
-                        : "bg-black/40 border-white/10 text-slate-400 hover:text-white"
-                    }`}
-                  >
-                    {f.id}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs text-slate-400 block mb-1.5">Visual Theme</label>
+        {/* Edit Style Selector (All 5 Styles) */}
+        <div className="space-y-2.5">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-bold text-white">Edit style</div>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-slate-400">Theme:</span>
               <select
                 value={themeId}
                 onChange={(e) => setThemeId(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-[#0d0d1d] border border-white/10 text-xs text-white"
+                className="px-2.5 py-1 rounded-lg bg-[#0d0d1d] border border-white/10 text-xs text-white"
               >
                 {Object.entries(THEMES).map(([id, t]) => (
                   <option key={id} value={id}>
@@ -1526,102 +2079,218 @@ export default function MotionEditor({ projects = [], showToast }) {
             </div>
           </div>
 
-          {/* Action Buttons */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+          <div className="space-y-2.5">
+            {EDIT_STYLES.map((st) => {
+              const Icon = st.icon;
+              const active = editStyleId === st.id;
+              return (
+                <button
+                  key={st.id}
+                  type="button"
+                  onClick={() => setEditStyleId(st.id)}
+                  className={`w-full p-4 rounded-2xl border text-left transition flex items-center justify-between gap-3 ${
+                    active
+                      ? "bg-amber-500/15 border-amber-400/70 shadow-lg shadow-amber-500/10"
+                      : "bg-white/[0.03] border-white/10 hover:border-white/25"
+                  }`}
+                >
+                  <div className="flex items-center gap-3.5">
+                    <div
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                        active
+                          ? "bg-amber-500/25 text-amber-300"
+                          : "bg-white/5 text-amber-400/80"
+                      }`}
+                    >
+                      <Icon className="w-5 h-5"/>
+                    </div>
+                    <div>
+                      <div className="font-bold text-sm text-white">{st.name}</div>
+                      <div className="text-xs text-slate-400 mt-0.5 leading-relaxed">
+                        {st.desc}
+                      </div>
+                    </div>
+                  </div>
+                  <div
+                    className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                      active ? "border-amber-400" : "border-slate-600"
+                    }`}
+                  >
+                    {active && <div className="w-2.5 h-2.5 rounded-full bg-amber-400" />}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Primary Get Prompt + Instant Auto-Build */}
+        <div className="space-y-2.5 pt-1">
+          <button
+            type="button"
+            onClick={() => {
+              if (!transcriptInput.trim()) {
+                notify("Please paste or upload a transcript first.", "error");
+                return;
+              }
+              const promptText = buildAiHandoffPrompt(
+                transcriptInput,
+                formatId,
+                fps,
+                editStyleId,
+                themeId
+              );
+              setGeneratedPrompt(promptText);
+              setShowPromptBox(false);
+              navigator.clipboard?.writeText(promptText).then(() => {
+                setCopiedPrompt(true);
+                setTimeout(() => setCopiedPrompt(false), 2500);
+              });
+              notify("Handoff prompt ready & copied!", "success");
+            }}
+            className="w-full py-3.5 rounded-2xl bg-slate-100 hover:bg-white text-black font-extrabold text-sm flex items-center justify-center gap-2 shadow-xl transition"
+          >
+            <Wand2 className="w-4 h-4"/>
+            Get Prompt
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (!transcriptInput.trim()) {
+                notify("Please paste or upload a transcript first.", "error");
+                return;
+              }
+              const autoCode = buildRecipeFromTranscript(transcriptInput, themeId, editStyleId);
+              const newId = `motion_${Date.now()}`;
+              const title =
+                transcriptInput
+                  .replace(/\d+:\d+[^\n]*/g, "")
+                  .trim()
+                  .split(/\s+/)
+                  .slice(0, 5)
+                  .join(" ") || "Auto Motion Edit";
+              setProjectId(newId);
+              setProjectTitle(title);
+              setRecipeDraft(autoCode);
+              setAppliedRecipe(autoCode);
+              setCurrentTime(0);
+              currentTimeRef.current = 0;
+              setWorkspaceTab("timeline");
+              setScreen("workspace");
+              setIsPlaying(true);
+              saveProjectToRecents({
+                id: newId,
+                title,
+                formatId,
+                fps,
+                themeId,
+                code: autoCode,
+              });
+              notify("Motion edit auto-built from your transcript!", "success");
+            }}
+            className="w-full py-3 rounded-2xl bg-gradient-to-r from-violet-600 to-cyan-500 hover:opacity-95 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2"
+          >
+            <Sparkles className="w-4 h-4"/>
+            Or Auto-Build Motion Edit Instantly (Skip External AI)
+          </button>
+        </div>
+
+        {/* GREEN "Handoff ready" Panel */}
+        {generatedPrompt && (
+          <div className="p-5 sm:p-6 rounded-3xl bg-emerald-950/40 border border-emerald-500/40 space-y-4 shadow-xl">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 font-extrabold text-base text-emerald-300">
+                <CheckCircle2 className="w-5 h-5 text-emerald-400"/>
+                Handoff ready
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Send this to Claude, ChatGPT, or Gemini. It returns the{" "}
+                <code className="text-emerald-200">[ASSETS]</code> and{" "}
+                <code className="text-emerald-200">[RECIPE]</code> blocks. Copy those, then tap{" "}
+                <strong>Open the editor</strong> below and paste them in.
+              </p>
+            </div>
+
             <button
               type="button"
-              onClick={() => {
-                if (!transcriptInput.trim()) {
-                  notify("Please paste or upload a transcript first.", "error");
-                  return;
-                }
-                const promptText = buildAiHandoffPrompt(transcriptInput, formatId, themeId);
-                setGeneratedPrompt(promptText);
-                navigator.clipboard?.writeText(promptText).then(() => {
+              onClick={handleSavePromptTxt}
+              className="w-full py-3.5 rounded-2xl bg-white hover:bg-slate-100 text-black font-extrabold text-sm flex items-center justify-center gap-2 shadow-lg"
+            >
+              <Download className="w-4 h-4"/>
+              Save the prompt (.txt)
+            </button>
+
+            <p className="text-[11px] text-slate-400 text-center">
+              Save and attach the .txt in Claude / ChatGPT — or copy &amp; open directly below:
+            </p>
+
+            {/* Quick Copy + Direct AI Launch Links */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard?.writeText(generatedPrompt);
                   setCopiedPrompt(true);
                   setTimeout(() => setCopiedPrompt(false), 2500);
-                });
-                notify("Prompt generated & copied! Paste it into Claude or ChatGPT.", "success");
-              }}
-              className="py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-black font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 hover:opacity-95"
+                  notify("Prompt copied to clipboard!", "success");
+                }}
+                className="py-2.5 px-3 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-xs font-bold text-white flex items-center justify-center gap-1.5"
+              >
+                {copiedPrompt ? <Check className="w-3.5 h-3.5 text-emerald-400"/> : <Copy className="w-3.5 h-3.5"/>}
+                {copiedPrompt ? "Copied" : "Copy Text"}
+              </button>
+              <a
+                href="[https://claude.ai/new](https://claude.ai/new)"
+                target="_blank"
+                rel="noreferrer"
+                className="py-2.5 px-3 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/30 text-amber-200 text-xs font-bold flex items-center justify-center gap-1"
+              >
+                Claude <ExternalLink className="w-3 h-3"/>
+              </a>
+              <a
+                href="[https://chatgpt.com/](https://chatgpt.com/)"
+                target="_blank"
+                rel="noreferrer"
+                className="py-2.5 px-3 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/30 text-emerald-200 text-xs font-bold flex items-center justify-center gap-1"
+              >
+                ChatGPT <ExternalLink className="w-3 h-3"/>
+              </a>
+              <a
+                href="[https://gemini.google.com/app](https://gemini.google.com/app)"
+                target="_blank"
+                rel="noreferrer"
+                className="py-2.5 px-3 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/30 text-cyan-200 text-xs font-bold flex items-center justify-center gap-1"
+              >
+                Gemini <ExternalLink className="w-3 h-3"/>
+              </a>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowPromptBox((s) => !s)}
+              className="w-full py-2.5 rounded-xl bg-black/40 hover:bg-black/60 border border-white/10 text-amber-300 text-xs font-bold flex items-center justify-center gap-2"
             >
-              {copiedPrompt ? <Check className="w-4 h-4"/> : <Copy className="w-4 h-4"/>}
-              {copiedPrompt ? "Prompt Copied!" : "Get Prompt (For Claude / ChatGPT)"}
+              {showPromptBox ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
+              {showPromptBox ? "Hide prompt" : `Show prompt (${generatedPrompt.length.toLocaleString()} characters)`}
             </button>
+
+            {showPromptBox && (
+              <pre className="text-[11px] text-slate-300 whitespace-pre-wrap max-h-64 overflow-y-auto p-3.5 rounded-xl bg-black/70 border border-white/10 font-mono">
+                {generatedPrompt}
+              </pre>
+            )}
 
             <button
               type="button"
               onClick={() => {
-                if (!transcriptInput.trim()) {
-                  notify("Please paste or upload a transcript first.", "error");
-                  return;
-                }
-                const autoCode = buildRecipeFromTranscript(transcriptInput, themeId);
-                const newId = `motion_${Date.now()}`;
-                const title =
-                  transcriptInput
-                    .replace(/\d+:\d+[^\n]*/g, "")
-                    .trim()
-                    .split(/\s+/)
-                    .slice(0, 5)
-                    .join(" ") || "Auto Motion Edit";
-                setProjectId(newId);
-                setProjectTitle(title);
-                setRecipeDraft(autoCode);
-                setAppliedRecipe(autoCode);
-                setCurrentTime(0);
-                currentTimeRef.current = 0;
-                setWorkspaceTab("timeline");
+                setWorkspaceTab("code");
                 setScreen("workspace");
-                setIsPlaying(true);
-                saveProjectToRecents({
-                  id: newId,
-                  title,
-                  formatId,
-                  themeId,
-                  code: autoCode,
-                });
-                notify("Motion edit auto-built from your transcript!", "success");
               }}
-              className="py-3 rounded-xl bg-gradient-to-r from-violet-600 to-cyan-500 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 hover:opacity-95"
+              className="w-full py-2 text-center text-sm font-extrabold text-white hover:text-amber-300 transition"
             >
-              <Sparkles className="w-4 h-4"/>
-              Auto-Build Motion Edit Instantly
+              Got the code? Open the editor →
             </button>
-          </div>
-        </div>
-
-        {/* Generated Prompt Box */}
-        {generatedPrompt && (
-          <div className="p-5 rounded-2xl bg-black/50 border border-amber-400/30 space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-bold text-amber-300">
-                Ready Handoff Prompt — Paste into Claude, ChatGPT, or Gemini
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => {
-                    navigator.clipboard?.writeText(generatedPrompt);
-                    notify("Prompt copied to clipboard!", "success");
-                  }}
-                  className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-xs font-semibold flex items-center gap-1"
-                >
-                  <Copy className="w-3.5 h-3.5"/> Copy
-                </button>
-                <button
-                  onClick={() => {
-                    setWorkspaceTab("code");
-                    setScreen("workspace");
-                  }}
-                  className="px-3 py-1 rounded-lg bg-amber-500 text-black text-xs font-bold"
-                >
-                  Paste Code Now →
-                </button>
-              </div>
-            </div>
-            <pre className="text-[11px] text-slate-300 whitespace-pre-wrap max-h-64 overflow-y-auto p-3 rounded-xl bg-black/60 border border-white/10 font-mono">
-              {generatedPrompt}
-            </pre>
           </div>
         )}
       </div>
@@ -1629,125 +2298,10 @@ export default function MotionEditor({ projects = [], showToast }) {
   }
 
   // =========================================================================
-  // RENDER 3: GET TRANSCRIPT (Free Speech-to-Text + Mic + ClipForge Clips)
-  // =========================================================================
-  if (screen === "get_transcript") {
-    return (
-      <div className="max-w-3xl mx-auto space-y-5">
-        <div className="flex items-center justify-between gap-3">
-          <button
-            onClick={() => setScreen("home")}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold"
-          >
-            <ArrowLeft className="w-4 h-4"/> Back
-          </button>
-          <h2 className="font-extrabold text-base sm:text-lg text-white">Get transcript</h2>
-          <button
-            onClick={() => setScreen("get_code")}
-            className="text-xs text-amber-300 font-semibold hover:underline"
-          >
-            Next: Get Code →
-          </button>
-        </div>
-
-        {/* Option 1: Free Whisper Speech-to-Text Site */}
-        <div className="p-5 rounded-2xl bg-gradient-to-br from-violet-900/25 via-black/40 to-cyan-900/20 border border-white/10 space-y-3">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div>
-              <div className="font-bold text-sm text-white">
-                1. Free Speech-to-Text (Audio / Video → SRT)
-              </div>
-              <p className="text-xs text-slate-400 mt-1">
-                Upload your MP3, WAV, or MP4 (up to 5 minutes) on AIFreeForever, choose{" "}
-                <strong>Subtitles (SRT)</strong>, copy the output, and paste it below.
-              </p>
-            </div>
-            <a
-              href="[https://aifreeforever.com/tools/free-speech-to-text](https://aifreeforever.com/tools/free-speech-to-text)"
-              target="_blank"
-              rel="noreferrer"
-              className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-extrabold inline-flex items-center gap-1.5 shrink-0"
-            >
-              Open Free Transcriber <ExternalLink className="w-3.5 h-3.5"/>
-            </a>
-          </div>
-        </div>
-
-        {/* Option 2: Built-in Live Voice Dictation */}
-        <div className="p-5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-3">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div>
-              <div className="font-bold text-sm text-white">2. Live Mic Dictation (Built-In)</div>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Speak directly into your mic to write your script hands-free.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={toggleMicDictation}
-              className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition ${
-                listening
-                  ? "bg-rose-500/25 border-rose-400 text-rose-200 animate-pulse"
-                  : "bg-white/10 hover:bg-white/15 border-white/15 text-white"
-              }`}
-            >
-              {listening ? <MicOff className="w-4 h-4"/> : <Mic className="w-4 h-4"/>}
-              {listening ? "Stop Recording" : "Record Now"}
-            </button>
-          </div>
-
-          <textarea
-            rows={5}
-            value={transcriptInput}
-            onChange={(e) => setTranscriptInput(e.target.value)}
-            placeholder="Your dictated or pasted transcript / SRT will appear here..."
-            className="w-full p-3.5 rounded-xl bg-black/50 border border-white/10 text-xs sm:text-sm text-white focus:outline-none focus:border-cyan-400"
-          />
-
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={() => setScreen("get_code")}
-              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-cyan-500 text-xs font-bold text-white"
-            >
-              Use This Transcript in Get Code →
-            </button>
-          </div>
-        </div>
-
-        {/* Option 3: Import from Existing ClipForge Clips */}
-        {allClipForgeClips.length > 0 && (
-          <div className="p-5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-3">
-            <div className="font-bold text-sm text-white">
-              3. Grab Transcript from Your ClipForge Clips
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              {allClipForgeClips.slice(0, 6).map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => {
-                    handleImportFromClip(c.id);
-                    setScreen("get_code");
-                  }}
-                  className="p-3 rounded-xl bg-black/35 hover:bg-white/10 border border-white/10 text-left text-xs flex items-center justify-between gap-2"
-                >
-                  <span className="truncate font-semibold text-slate-200">{c.title}</span>
-                  <span className="text-cyan-300 shrink-0 font-bold">Import →</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // =========================================================================
-  // RENDER 4: WORKSPACE (Live Canvas + Timeline / Code / Assets + Export)
+  // RENDER 4: WORKSPACE ("I have code" + Live Canvas + Timeline + Assets)
   // =========================================================================
   return (
     <div className="space-y-4">
-      {/* Hidden Audio Element for Synced Voiceover Preview */}
       {audioAsset && <audio ref={audioElRef} src={audioAsset.url} preload="auto" />}
 
       {/* Top Editor Control Bar */}
@@ -1790,15 +2344,25 @@ export default function MotionEditor({ projects = [], showToast }) {
 
         <div className="flex items-center gap-2 flex-wrap">
           <select
-            value={formatId}
-            onChange={(e) => setFormatId(e.target.value)}
+            value={`${formatId}_${fps}`}
+            onChange={(e) => {
+              const [fId, fRate] = e.target.value.split("_");
+              setFormatId(fId);
+              setFps(Number(fRate));
+            }}
             className="px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-400/40 text-amber-200 text-xs font-bold"
           >
-            {FORMAT_OPTIONS.map((f) => (
-              <option key={f.id} value={f.id} className="bg-[#0d0d1d] text-white">
-                {f.label}
-              </option>
-            ))}
+            {FORMAT_OPTIONS.map((f) =>
+              FPS_OPTIONS.map((fr) => (
+                <option
+                  key={`${f.id}_${fr.value}`}
+                  value={`${f.id}_${fr.value}`}
+                  className="bg-[#0d0d1d] text-white"
+                >
+                  {f.id} · 1080p · {fr.value}fps
+                </option>
+              ))
+            )}
           </select>
 
           <button
@@ -1835,8 +2399,8 @@ export default function MotionEditor({ projects = [], showToast }) {
                 <Film className="w-10 h-10 text-slate-500"/>
                 <div className="font-bold text-sm text-white">No recipe yet</div>
                 <div className="text-xs text-slate-400 max-w-xs">
-                  Paste recipe code in the Code tab and tap <strong>Apply &amp; preview</strong>, or
-                  load a demo template.
+                  Paste code below and tap <strong>Apply &amp; preview</strong>, or tap{" "}
+                  <strong>No code? Get code</strong>.
                 </div>
               </div>
             )}
@@ -1899,7 +2463,7 @@ export default function MotionEditor({ projects = [], showToast }) {
 
             <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
               <span>
-                {parsedRecipe.cues.length} cues · Theme:{" "}
+                {parsedRecipe.cues.length} cues · {fps}fps · Theme:{" "}
                 <strong className="text-slate-200">{THEMES[parsedRecipe.theme]?.label}</strong>
               </span>
               {audioAsset && (
@@ -1913,7 +2477,6 @@ export default function MotionEditor({ projects = [], showToast }) {
 
         {/* Right: Timeline / Code / Assets Panel */}
         <div className="lg:col-span-6 p-4 rounded-2xl bg-white/[0.04] border border-white/10 space-y-4">
-          {/* 3-Tab Segmented Switcher */}
           <div className="grid grid-cols-3 p-1 rounded-xl bg-black/50 border border-white/10 text-xs font-bold">
             {[
               { id: "timeline", label: "Timeline", icon: Layers },
@@ -1944,7 +2507,7 @@ export default function MotionEditor({ projects = [], showToast }) {
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                 <span className="text-slate-400">
                   Paste the <code className="text-slate-200">[ASSETS] + [RECIPE]</code> reply from
-                  Claude or ChatGPT
+                  Claude / ChatGPT
                 </span>
                 <button
                   onClick={() => setScreen("get_code")}
@@ -1954,15 +2517,21 @@ export default function MotionEditor({ projects = [], showToast }) {
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={handlePasteCodeFromClipboard}
+                  className="py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/35 text-amber-200 text-xs font-bold flex items-center justify-center gap-1.5"
+                >
+                  <Clipboard className="w-3.5 h-3.5"/> Paste
+                </button>
                 <button
                   onClick={handleDownloadProjectFile}
                   className="py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold flex items-center justify-center gap-1.5"
                 >
-                  <Save className="w-3.5 h-3.5"/> Save project
+                  <Save className="w-3.5 h-3.5"/> Save
                 </button>
                 <label className="py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer">
-                  <FolderOpen className="w-3.5 h-3.5"/> Open project
+                  <FolderOpen className="w-3.5 h-3.5"/> Open
                   <input
                     type="file"
                     accept=".json"
@@ -1976,12 +2545,12 @@ export default function MotionEditor({ projects = [], showToast }) {
                 rows={11}
                 value={recipeDraft}
                 onChange={(e) => setRecipeDraft(e.target.value)}
-                placeholder={`v1\ntheme=dark\n00:00.00 --> 00:03.00 text "Hello"\nin=fadeUp\n00:03.00 --> 00:06.00 stat "10x Faster" sub="Motion edits in seconds" in=pop`}
+                placeholder={`v1\ntheme=dark\n00:00.00 --> 00:03.00 text "Hello"\nin=fadeUp`}
                 className="w-full p-3.5 rounded-xl bg-black/60 border border-white/10 text-xs font-mono text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-amber-400"
               />
 
               <button
-                onClick={handleApplyCode}
+                onClick={() => handleApplyCode()}
                 className="w-full py-3 rounded-xl bg-white hover:bg-slate-100 text-black font-extrabold text-sm flex items-center justify-center gap-2 shadow-lg transition"
               >
                 <CheckCircle2 className="w-4 h-4"/> Apply &amp; preview
@@ -2178,10 +2747,9 @@ export default function MotionEditor({ projects = [], showToast }) {
             </div>
           )}
 
-          {/* TAB 3: ASSETS (Images + Voiceover Audio) */}
+          {/* TAB 3: ASSETS */}
           {workspaceTab === "assets" && (
             <div className="space-y-4">
-              {/* Voiceover Audio Upload */}
               <div className="p-4 rounded-xl bg-black/35 border border-white/10 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div className="text-xs font-bold text-white flex items-center gap-1.5">
@@ -2217,7 +2785,6 @@ export default function MotionEditor({ projects = [], showToast }) {
                 </label>
               </div>
 
-              {/* Image Assets Upload */}
               <div className="p-4 rounded-xl bg-black/35 border border-white/10 space-y-3">
                 <div className="text-xs font-bold text-white flex items-center gap-1.5">
                   <ImageIcon className="w-4 h-4 text-cyan-400"/> Image &amp; Logo Assets
