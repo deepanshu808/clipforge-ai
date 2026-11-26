@@ -396,7 +396,7 @@ function buildRecipeFromTranscript(transcript, theme = "neon", editStyleId = "dy
     const safe = String(text || "").replace(/"/g, "'").trim();
     if (!safe || /^\d{1,2}:\d{2}(?::\d{2})?$/.test(safe)) return;
     const anim = animCycle[idx % animCycle.length];
-    const hasStat = /\d+%|\₹\d+|\$\d+|\d+x/i.test(safe);
+    const hasStat = /\d+%|₹\d+|\$\d+|\d+x/i.test(safe);
     if (idx === 0) {
       lines.push(
         `${formatRecipeTime(start)} --> ${formatRecipeTime(end)} badge "WATCH THIS" sub="${safe}" in=pop`
@@ -1852,7 +1852,6 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
 
         {transcriptTab === "riverside" && (
           <div className="space-y-4">
-            {/* Direct Riverside.fm Launch Card */}
             <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-br from-violet-900/30 via-[#0e0e1d] to-amber-900/20 border border-amber-400/35 space-y-4 shadow-xl">
               <div className="space-y-1.5">
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-400/30 text-amber-300 text-[11px] font-bold">
@@ -1910,7 +1909,6 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
               </div>
             </div>
 
-            {/* Direct Upload .SRT / .TXT Box */}
             <div className="p-5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-3">
               <div className="font-bold text-sm text-white">
                 Already downloaded your .SRT or .TXT from Riverside?
@@ -2223,6 +2221,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
             {FORMAT_OPTIONS.map((f) => {
               const Icon = f.icon;
               const active = formatId === f.id;
+              const iconClass = active ? "w-5 h-5 text-amber-400" : "w-5 h-5 text-slate-400";
               return (
                 <button
                   key={f.id}
@@ -2234,7 +2233,7 @@ export default function MotionEditor({ projects = [], showToast, apiBaseUrl }) {
                       : "bg-white/[0.03] border-white/10 text-slate-400 hover:border-white/25"
                   }`}
                 >
-                  <Icon "text-amber-400" "text-slate-400"}`} ${active : ? className="{`w-5" h-5/>
+                  <Icon className="{iconClass}"/>
                   <div className="font-extrabold text-sm">{f.name}</div>
                   <div className="text-[11px] opacity-80">{f.desc}</div>
                 </button>
